@@ -16,7 +16,7 @@ agent loop can fire them off without managing browser lifecycle.
 pnpm add -g @vercel/next-browser
 ```
 
-Requires Node `>=22.18` (native TypeScript stripping, no build step).
+Requires Node `>=20`.
 
 ## Usage
 

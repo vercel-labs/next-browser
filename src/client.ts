@@ -23,7 +23,8 @@ export async function send(
 async function ensureDaemon() {
   if (daemonAlive() && (await connect().then(ok, no))) return;
 
-  const daemon = fileURLToPath(new URL("./daemon.ts", import.meta.url));
+  const ext = import.meta.url.endsWith(".ts") ? ".ts" : ".js";
+  const daemon = fileURLToPath(new URL(`./daemon${ext}`, import.meta.url));
   const child = spawn(process.execPath, [daemon], {
     detached: true,
     stdio: "ignore",
