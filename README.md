@@ -18,6 +18,17 @@ pnpm add -g @vercel/next-browser
 
 Requires Node `>=20`.
 
+## Agent skill
+
+Install the [SKILL.md](./SKILL.md) into your agent so it knows how to drive
+the CLI (command reference, PPR workflow, gotchas):
+
+```bash
+npx skills add vercel-labs/next-browser
+```
+
+Works with Claude Code, Cursor, Cline, and [others](https://skills.sh).
+
 ## Usage
 
 ```bash
