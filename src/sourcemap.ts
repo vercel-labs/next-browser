@@ -32,6 +32,25 @@ export async function resolve(
   return { file: frame.file, line: frame.line1, column: frame.column1 };
 }
 
+import { resolve as resolvePath } from "node:path";
+import * as mcp from "./mcp.ts";
+
+const projectRoots = new Map<string, string | null>();
+
+async function projectRoot(origin: string) {
+  if (projectRoots.has(origin)) return projectRoots.get(origin)!;
+  const meta = await mcp.call(origin, "get_project_metadata").catch(() => null) as any;
+  const root = typeof meta?.projectPath === "string" ? meta.projectPath : null;
+  projectRoots.set(origin, root);
+  return root;
+}
+
+async function absolutize(origin: string, path: string) {
+  if (path.startsWith("/") || path.startsWith("node_modules/")) return path;
+  const root = await projectRoot(origin);
+  return root ? resolvePath(root, path) : path;
+}
+
 function normalize(file: string, origin: string): { path: string; isServer: boolean } {
   const stripped = file.replace(/^about:\/\/React\/[^/]+\//, "");
   const isServer = file !== stripped;
@@ -62,7 +81,7 @@ export async function resolveViaMap(
   const pos = consumer.originalPositionFor({ line, column });
   if (!pos.source) return null;
 
-  return { file: cleanPath(pos.source), line: pos.line, column: pos.column };
+  return { file: await absolutize(origin, cleanPath(pos.source)), line: pos.line, column: pos.column };
 }
 
 async function load(origin: string, path: string) {

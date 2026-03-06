@@ -321,10 +321,7 @@ async function inPageSuspense(inspect: boolean): Promise<Boundary[]> {
       for (const entry of rawSuspenders) {
         const awaited = entry?.awaited;
         if (!awaited) continue;
-        const desc = awaited.description
-          || awaited.value?.value
-          || awaited.value?.preview_long
-          || "";
+        const desc = preview(awaited.description) || preview(awaited.value);
         boundary.suspendedBy.push({
           name: awaited.name ?? "unknown",
           description: desc,
@@ -356,6 +353,21 @@ async function inPageSuspense(inspect: boolean): Promise<Boundary[]> {
       if (Array.isArray(frame) && frame.length >= 4) {
         boundary.jsxSource = [frame[1] || "(unknown)", frame[2], frame[3]];
       }
+    }
+  }
+
+  function preview(v: any): string {
+    if (v == null) return "";
+    if (typeof v === "string") return v;
+    if (typeof v !== "object") return String(v);
+    if (typeof v.preview_long === "string") return v.preview_long;
+    if (typeof v.preview_short === "string") return v.preview_short;
+    if (typeof v.value === "string") return v.value;
+    try {
+      const s = JSON.stringify(v);
+      return s.length > 80 ? s.slice(0, 77) + "..." : s;
+    } catch {
+      return "";
     }
   }
 }
