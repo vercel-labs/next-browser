@@ -15,12 +15,20 @@ globally with the user's package manager, then `playwright install chromium`.
 
 ## When this skill loads
 
-Your first message is the onboarding questions — not "ready, what would
-you like to do?" and not a speculative command. Don't auto-discover
-(scanning ports, probing `project`, reading configs). Ask:
+Your first message introduces the tool and asks setup questions. Don't say
+"ready, what would you like to do?" and don't run speculative commands or
+auto-discover (port scans, `project`, config reads). Say something like:
 
-- What's the dev server URL, and is it running right now?
-- Are the pages you care about behind auth? Where's the cookies file?
+> This opens a headed browser against your Next.js dev server so I can
+> read the React component tree, see the PPR shell, and check errors the
+> way you would in DevTools. To start:
+>
+> - What's your dev server URL? (And is it running?)
+> - Are the pages you're debugging behind a login? If so I'll need your
+>   session cookies — easiest is to copy them from your browser's
+>   DevTools → Application → Cookies into a JSON file like
+>   `[{"name":"session","value":"..."}]`. If the pages are public, skip
+>   this.
 
 Wait for answers. Then `open <url> [--cookies-json <file>]`. Every other
 command errors without an open session.
