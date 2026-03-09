@@ -374,7 +374,11 @@ exits — both are human calls, bring the question to them:
   this data is safe to cache — staleness, who sees it — is their call,
   not yours.
 
-There are two shells depending on how the user arrives.
+There are two shells depending on how the user arrives. They're observed
+differently and can differ in content — establish which one you're
+optimizing before touching the browser. If the ask is "make this page
+load faster" without qualification, ask: cold URL hit, or clicking in
+from another page (which page)? Don't guess, don't do both.
 
 **Direct load — the PPR shell.** Server HTML for a cold hit on the URL.
 Lock first, then `goto` the target — the lock suppresses hydration so you
