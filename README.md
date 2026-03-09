@@ -10,41 +10,44 @@ Built for agents. An LLM can't read a DevTools panel, but it can run
 command is a stateless one-shot against a long-lived browser daemon, so an
 agent loop can fire them off without managing browser lifecycle.
 
-## Install
+## Getting started
+
+You don't install or run this directly. Your agent does.
+
+1. **Add the skill to your project.** From your Next.js repo:
+
+   ```bash
+   npx skills add vercel-labs/next-browser
+   ```
+
+   Works with Claude Code, Cursor, Cline, and [others](https://skills.sh).
+
+2. **Start your agent** in that project.
+
+3. **Type `/next-browser`** to invoke the skill.
+
+4. The skill checks for the CLI and **installs `@vercel/next-browser`
+   globally** if it's missing (plus `playwright install chromium`).
+
+5. It asks for your dev server URL and any cookies it needs, opens the
+   browser, and from there it's **pair programming** — tell it what you're
+   debugging and it drives the tree, navigates pages, inspects components,
+   and reads errors for you.
+
+That's the whole flow. Run `npx skills upgrade` later to pull updates.
+
+The rest of this README documents the raw CLI for the rare case where you're
+scripting it yourself.
+
+---
+
+## Manual install
 
 ```bash
 pnpm add -g @vercel/next-browser
 ```
 
 Requires Node `>=20`.
-
-## Agent skill
-
-Install the [SKILL.md](./SKILL.md) into your agent so it knows how to drive
-the CLI (command reference, PPR workflow, gotchas):
-
-```bash
-npx skills add vercel-labs/next-browser
-```
-
-Works with Claude Code, Cursor, Cline, and [others](https://skills.sh).
-Run `npx skills upgrade` to pull the latest version.
-
-Then start a session by typing `/next-browser` to the agent. The skill
-runs an onboarding (dev server URL, cookies) before touching the CLI —
-invoking it directly is the intended entry point, not describing your task
-and hoping the agent picks it up.
-
-## Usage
-
-```bash
-next-browser open http://localhost:3000
-next-browser tree
-next-browser ppr lock
-next-browser push /dashboard
-next-browser ppr unlock
-next-browser close
-```
 
 ## Commands
 
