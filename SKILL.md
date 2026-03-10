@@ -17,7 +17,13 @@ globally with the user's package manager, then `playwright install chromium`.
 
 Your first message introduces the tool and asks setup questions. Don't say
 "ready, what would you like to do?" and don't run speculative commands or
-auto-discover (port scans, `project`, config reads). Say something like:
+auto-discover (port scans, `project`, config reads).
+
+If the user already provided a URL, cookies, and task in their message,
+skip the questions — go straight to `open` and start working. Only ask
+what's missing.
+
+Otherwise say something like:
 
 > This opens a headed browser against your Next.js dev server so I can
 > read the React component tree, see the PPR shell, and check errors the
@@ -48,6 +54,10 @@ opened → http://localhost:3024/vercel (11 cookies for localhost)
 ```
 
 Cookie file format: `[{"name":"authorization","value":"Bearer ..."}, ...]`
+
+Only `name` and `value` are required per cookie — omit `domain`, `path`,
+`expires`, etc. To create the file, use Bash (`echo '[...]' > /tmp/cookies.json`)
+since the Write tool requires a prior Read.
 
 ### `close`
 
@@ -92,6 +102,10 @@ has a new execution ID, then reloads the page.
 Last resort. HMR picks up code changes on its own — reach for this only
 when you have evidence the dev server is wedged (stale output after edits,
 builds that never finish, errors that don't clear).
+
+`restart-server` often exits with `net::ERR_ABORTED` — this is expected
+(the page detaches during restart). Follow up with `goto <url>` to
+re-navigate after the server is back. Don't treat this error as a failure.
 
 ---
 
@@ -148,6 +162,11 @@ Each hole shows: boundary name + source, `rendered by:` ownership chain,
 bailed to CSR), unlock and `goto` the page normally, then run `errors`.
 Don't debug blind under the lock.
 
+**Full bailout (scrollHeight = 0).** When PPR bails out completely, `unlock`
+returns just "unlocked" with no shell analysis — there are no boundaries to
+report. In this case, unlock, `goto` the page normally, then use `errors`
+and `logs` to find the root cause.
+
 ---
 
 ### `tree`
@@ -202,6 +221,9 @@ Full-page PNG to a temp file. Returns the path. Read with the Read tool.
 $ next-browser screenshot
 /var/folders/.../next-browser-1772770369495.png
 ```
+
+Don't narrate what the screenshot shows — the user can see the browser.
+State your conclusion or next action, not a description of the page.
 
 ### `eval <script>`
 
@@ -396,6 +418,12 @@ exits — both are human calls, bring the question to them:
   this data is safe to cache — staleness, who sees it — is their call,
   not yours.
 
+**Test your hypothesis before proposing a fix.** If you suspect a
+component is the cause, find evidence — check `errors`, inspect the
+component with `tree`, or compare a route where the shell works to
+one where it doesn't. Don't commit to a root cause or propose changes
+from a single observation.
+
 There are two shells depending on how the user arrives. They're observed
 differently and can differ in content — establish which one you're
 optimizing before touching the browser. If the ask is "make this page
@@ -415,3 +443,6 @@ screenshot, unlock. Locking before the origin hydrates means nothing got
 prefetched and `push` has nothing to show.
 
 Between iterations: check `errors` while unlocked.
+
+**After making a code change:** HMR picks it up — just re-lock,
+`goto` the page, and re-test. No need to `restart-server`.
