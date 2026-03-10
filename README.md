@@ -61,7 +61,7 @@ back               go back in history
 reload             reload current page
 restart-server     restart the Next.js dev server (clears fs cache)
 
-ppr lock           enter PPR instant-navigation mode
+ppr lock           enter PPR instant-navigation mode (requires cacheComponents)
 ppr unlock         exit PPR mode and show shell analysis
 
 tree               show React component tree

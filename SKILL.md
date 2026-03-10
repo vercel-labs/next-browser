@@ -13,6 +13,17 @@ globally with the user's package manager, then `playwright install chromium`.
 
 ---
 
+## Next.js docs awareness
+
+If the project's Next.js version is **v16.2.0-canary.37 or later**, bundled
+docs live at `node_modules/next/dist/docs/`. Before doing PPR work, Cache
+Components work, or any non-trivial Next.js task, read the relevant doc there
+— your training data may be outdated. The bundled docs are the source of truth.
+
+See https://nextjs.org/docs/app/guides/ai-agents for background.
+
+---
+
 ## When this skill loads
 
 Your first message introduces the tool and asks setup questions. Don't say
@@ -110,6 +121,9 @@ re-navigate after the server is back. Don't treat this error as a failure.
 ---
 
 ### `ppr lock`
+
+**Prerequisite:** PPR requires `cacheComponents` to be enabled in
+`next.config`. Without it the shell won't have pre-rendered content to show.
 
 Enter PPR instant-navigation mode. Sets the `next-instant-navigation-testing`
 cookie. After this:
