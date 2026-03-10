@@ -11,6 +11,12 @@ description: >-
 If `next-browser` is not already on PATH, install `@vercel/next-browser`
 globally with the user's package manager, then `playwright install chromium`.
 
+If `next-browser` is already installed, it may be outdated. Run
+`next-browser --version` and compare against the latest on npm
+(`npm view @vercel/next-browser version`). If the installed version is
+behind, upgrade it (`npm install -g @vercel/next-browser@latest` or the
+equivalent for the user's package manager) before proceeding.
+
 ---
 
 ## Next.js docs awareness
