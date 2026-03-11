@@ -89,16 +89,18 @@ async function inPageSnapshot(): Promise<Node[]> {
   function collect(ri: { flushInitialOperations: () => void }) {
     return new Promise<number[][]>((resolve) => {
       const out: number[][] = [];
-      const listener = (e: MessageEvent) => {
-        const p = e.data?.payload;
-        if (e.data?.source === "react-devtools-bridge" && p?.event === "operations") {
-          out.push(p.payload);
-        }
+
+      // Listen on the hook directly (works in both headed and headless)
+      const origEmit = hook.emit;
+      hook.emit = function (event: string, data: number[]) {
+        if (event === "operations") out.push(Array.from(data));
+        return origEmit.apply(hook, arguments);
       };
-      window.addEventListener("message", listener);
+
       ri.flushInitialOperations();
+
       setTimeout(() => {
-        window.removeEventListener("message", listener);
+        hook.emit = origEmit;
         resolve(out);
       }, 50);
     });

@@ -505,53 +505,26 @@ export async function viewportSize() {
 // ── Browser launch ───────────────────────────────────────────────────────────
 
 /**
- * Create a temporary Chrome profile directory with DevTools set to "undocked"
- * so it opens in a separate window instead of docked inside the browser.
- * This keeps the main browser viewport at full desktop size.
- */
-function createProfileDir() {
-  const dir = join(tmpdir(), `next-browser-profile-${process.pid}`);
-  mkdirSync(join(dir, "Default"), { recursive: true });
-  writeFileSync(
-    join(dir, "Default", "Preferences"),
-    JSON.stringify({
-      devtools: {
-        preferences: {
-          currentDockState: '"undocked"',
-        },
-      },
-    }),
-  );
-  return dir;
-}
-
-/**
- * Launch Chromium with React DevTools extension.
+ * Launch Chromium with the React DevTools hook pre-injected.
  *
- * - launchPersistentContext with a pre-configured profile that sets DevTools
- *   to undocked mode — DevTools opens in a separate window, not docked
- * - --load-extension loads the vendored React DevTools Chrome extension
- * - --auto-open-devtools-for-tabs makes the extension activate its backend
- *   on every tab (same as a developer manually opening DevTools)
- * - waitForEvent("serviceworker") ensures the extension's background script
- *   is running before we navigate
- * - addInitScript(installHook) injects the DevTools hook before any page JS,
- *   winning the race against the extension's content script
+ * addInitScript(installHook) installs the DevTools global hook before any
+ * page JS runs. React discovers the hook and registers its renderers,
+ * enabling tree inspection and suspense tracking without a browser extension.
+ *
+ * Set NEXT_BROWSER_HEADLESS=1 for cloud/CI environments (no display).
  */
 async function launch() {
-  const profileDir = createProfileDir();
-  profileDirPath = profileDir;
-  const ctx = await chromium.launchPersistentContext(profileDir, {
-    headless: false,
-    viewport: null, // let viewport follow the physical window size
-    args: [
-      `--disable-extensions-except=${extensionPath}`,
-      `--load-extension=${extensionPath}`,
-      "--auto-open-devtools-for-tabs",
-      "--window-size=1440,900",
-    ],
+  const headless = !!process.env.NEXT_BROWSER_HEADLESS;
+  const dir = join(tmpdir(), `next-browser-profile-${process.pid}`);
+  mkdirSync(dir, { recursive: true });
+  profileDirPath = dir;
+
+  const ctx = await chromium.launchPersistentContext(dir, {
+    headless,
+    viewport: { width: 1440, height: 900 },
+    // --no-sandbox is required when Chrome runs as root (common in containers/cloud sandboxes)
+    args: headless ? ["--no-sandbox"] : [],
   });
-  await ctx.waitForEvent("serviceworker");
   await ctx.addInitScript(installHook);
   return ctx;
 }
