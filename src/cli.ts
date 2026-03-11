@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { send } from "./client.ts";
+import { cloudSend } from "./cloud-client.ts";
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -176,6 +177,50 @@ if (cmd === "close") {
   exit(res, "closed");
 }
 
+// ── cloud subcommands ──────────────────────────────────────────
+if (cmd === "cloud") {
+  const sub = arg;
+
+  if (sub === "create") {
+    const res = await cloudSend("create");
+    exit(res, res.ok ? String(res.data) : "");
+  }
+
+  if (sub === "exec") {
+    const command = args.slice(2).join(" ");
+    if (!command) {
+      console.error("usage: next-browser cloud exec <command>");
+      process.exit(1);
+    }
+    const res = await cloudSend("exec", { command });
+    if (res.ok) {
+      if (res.data) process.stdout.write(String(res.data));
+      process.exit(0);
+    }
+    process.stderr.write(res.error + "\n");
+    process.exit(1);
+  }
+
+  if (sub === "status") {
+    const res = await cloudSend("status");
+    exit(res, res.ok ? String(res.data) : "");
+  }
+
+  if (sub === "destroy") {
+    const res = await cloudSend("destroy");
+    exit(res, res.ok ? String(res.data) : "");
+  }
+
+  if (!sub || sub === "--help" || sub === "-h") {
+    printCloudUsage();
+    process.exit(0);
+  }
+
+  console.error(`unknown cloud command: ${sub}\n`);
+  printCloudUsage();
+  process.exit(1);
+}
+
 console.error(`unknown command: ${cmd}\n`);
 printUsage();
 process.exit(1);
@@ -266,6 +311,19 @@ function printUsage() {
       "  page               show current page segments and router info\n" +
       "  project            show project path and dev server url\n" +
       "  routes             list app routes\n" +
-      "  action <id>        inspect a server action by id",
+      "  action <id>        inspect a server action by id\n" +
+      "\n" +
+      "  cloud <subcommand> cloud sandbox commands (run `cloud --help`)",
+  );
+}
+
+function printCloudUsage() {
+  console.error(
+    "usage: next-browser cloud <command>\n" +
+      "\n" +
+      "  create             create a cloud sandbox\n" +
+      "  exec <command>     run a shell command in the sandbox\n" +
+      "  status             show sandbox info\n" +
+      "  destroy            tear down the sandbox",
   );
 }
