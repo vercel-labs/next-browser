@@ -59,6 +59,7 @@ goto <url>         full-page navigation (new document load)
 push [path]        client-side navigation (interactive picker if no path)
 back               go back in history
 reload             reload current page
+capture-goto [url] capture loading sequence (PPR shell → hydration → data)
 restart-server     restart the Next.js dev server (clears fs cache)
 
 ppr lock           enter PPR instant-navigation mode (requires cacheComponents)
@@ -67,6 +68,7 @@ ppr unlock         exit PPR mode and show shell analysis
 tree               show React component tree
 tree <id>          inspect component (props, hooks, state, source)
 
+viewport [WxH]     show or set viewport size (e.g. 1280x720)
 screenshot         save full-page screenshot to tmp file
 eval <script>      evaluate JS in page context
 

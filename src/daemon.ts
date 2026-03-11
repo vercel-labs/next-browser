@@ -53,6 +53,8 @@ type Cmd = {
   idx?: number;
   cookies?: { name: string; value: string }[];
   domain?: string;
+  width?: number | null;
+  height?: number | null;
 };
 
 async function run(cmd: Cmd) {
@@ -74,6 +76,10 @@ async function run(cmd: Cmd) {
   }
   if (cmd.action === "reload") {
     const data = await browser.reload();
+    return { ok: true, data };
+  }
+  if (cmd.action === "capture-goto") {
+    const data = await browser.captureGoto(cmd.url as string | undefined);
     return { ok: true, data };
   }
   if (cmd.action === "restart") {
@@ -118,6 +124,14 @@ async function run(cmd: Cmd) {
   }
   if (cmd.action === "network") {
     const data = await browser.network(cmd.idx);
+    return { ok: true, data };
+  }
+  if (cmd.action === "viewport") {
+    if (cmd.width !== undefined) {
+      const data = await browser.viewport(cmd.width, cmd.height!);
+      return { ok: true, data };
+    }
+    const data = await browser.viewportSize();
     return { ok: true, data };
   }
   if (cmd.action === "close") {

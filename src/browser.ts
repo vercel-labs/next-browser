@@ -3,14 +3,17 @@
  *
  * Launches via Playwright with the React DevTools Chrome extension pre-loaded
  * and --auto-open-devtools-for-tabs so the extension activates naturally.
+ * DevTools opens in a separate (undocked) window so the main browser viewport
+ * stays at full desktop size.
  * installHook.js is pre-injected via addInitScript to win the race against
  * the extension's content script registration.
  *
  * Module-level state: one browser context, one page, one PPR lock.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { chromium, type BrowserContext, type Page } from "playwright";
 import { instant } from "@next/playwright";
 import * as componentTree from "./tree.ts";
@@ -32,6 +35,7 @@ const installHook = readFileSync(
 
 let context: BrowserContext | null = null;
 let page: Page | null = null;
+let profileDirPath: string | null = null;
 
 // ── Browser lifecycle ────────────────────────────────────────────────────────
 
@@ -71,6 +75,12 @@ export async function close() {
   page = null;
   release = null;
   settled = null;
+  // Clean up temp profile directory.
+  if (profileDirPath) {
+    const { rmSync } = await import("node:fs");
+    rmSync(profileDirPath, { recursive: true, force: true });
+    profileDirPath = null;
+  }
 }
 
 // ── PPR lock/unlock ──────────────────────────────────────────────────────────
@@ -214,6 +224,71 @@ export async function reload() {
   if (!page) throw new Error("browser not open");
   await page.reload({ waitUntil: "domcontentloaded" });
   return page.url();
+}
+
+/**
+ * Reload the page while capturing screenshots every ~150ms.
+ * Stops when: load has fired AND no new layout-shift entries for 2s.
+ * Hard timeout at 30s. Returns the list of screenshot paths plus any
+ * LayoutShift entries observed during the reload.
+ */
+/**
+ * Lock PPR → goto → screenshot the shell → unlock → screenshot frames
+ * until the page settles. Just PNGs in a directory — the AI reads them.
+ *
+ * Frame 0 is always the PPR shell. Remaining frames capture the transition
+ * through hydration and data loading. Stops after 3s of no visual change.
+ */
+export async function captureGoto(url?: string) {
+  if (!page) throw new Error("browser not open");
+  const targetUrl = url || page.url();
+  const dir = join(tmpdir(), `next-browser-capture-goto-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+
+  let frameIdx = 0;
+
+  async function snap() {
+    const path = join(dir, `frame-${String(frameIdx).padStart(4, "0")}.png`);
+    const buf = await page!.screenshot({ path }).catch(() => null);
+    frameIdx++;
+    return buf;
+  }
+
+  // PPR shell: lock suppresses hydration.
+  await lock();
+  await page.goto(targetUrl, { waitUntil: "load" }).catch(() => {});
+  await new Promise((r) => setTimeout(r, 300));
+  await snap();
+
+  // Unlock → page reloads, hydrates, loads data.
+  const unlockDone = unlock();
+  await new Promise((r) => setTimeout(r, 200));
+
+  let lastChangeTime = Date.now();
+  let prevHash = "";
+  const SETTLE_MS = 3_000;
+  const HARD_TIMEOUT = 30_000;
+  const start = Date.now();
+
+  while (true) {
+    const buf = await snap();
+
+    let hash = "";
+    if (buf) {
+      let h = 0;
+      for (let i = 0; i < buf.length; i += 200) h = ((h << 5) - h + buf[i]) | 0;
+      hash = String(h);
+    }
+    if (hash !== prevHash) { lastChangeTime = Date.now(); prevHash = hash; }
+
+    if (Date.now() - start > HARD_TIMEOUT) break;
+    if (lastChangeTime > 0 && Date.now() - lastChangeTime > SETTLE_MS) break;
+
+    await new Promise((r) => setTimeout(r, 150));
+  }
+
+  await unlockDone.catch(() => {});
+  return { dir, frames: frameIdx };
 }
 
 /**
@@ -378,12 +453,83 @@ export function network(idx?: number) {
   return idx == null ? net.format() : net.detail(idx);
 }
 
+// ── Viewport ─────────────────────────────────────────────────────────────────
+
+/**
+ * Set the browser viewport to the given dimensions.
+ * Returns the applied size. Once set, the viewport stays fixed across
+ * navigations — use `viewport(null, null)` to restore auto-sizing.
+ */
+export async function viewport(width: number | null, height: number | null) {
+  if (!page) throw new Error("browser not open");
+  if (width == null || height == null) {
+    // Reset to auto-sizing: match the browser window.
+    // Playwright doesn't expose a "reset viewport" API, so we read the
+    // current window bounds via CDP and set the viewport to match.
+    const cdp = await page.context().newCDPSession(page);
+    const { windowId } = await cdp.send("Browser.getWindowForTarget");
+    const { bounds } = await cdp.send("Browser.getWindowBounds", { windowId });
+    await cdp.detach();
+    // Account for browser chrome (~roughly 80px for title bar + tabs).
+    const w = bounds.width ?? 1280;
+    const h = (bounds.height ?? 800) - 80;
+    await page.setViewportSize({ width: w, height: h });
+    return { width: w, height: h };
+  }
+  await page.setViewportSize({ width, height });
+  // Also resize the physical window to match, so viewport == window.
+  try {
+    const cdp = await page.context().newCDPSession(page);
+    const { windowId } = await cdp.send("Browser.getWindowForTarget");
+    await cdp.send("Browser.setWindowBounds", {
+      windowId,
+      bounds: { width, height: height + 80 }, // +80 for browser chrome
+    });
+    await cdp.detach();
+  } catch {}
+  return { width, height };
+}
+
+/** Get the current viewport dimensions. */
+export async function viewportSize() {
+  if (!page) throw new Error("browser not open");
+  const size = page.viewportSize();
+  if (size) return size;
+  // viewport: null — read actual inner dimensions from the page.
+  return page.evaluate(() => ({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  }));
+}
+
 // ── Browser launch ───────────────────────────────────────────────────────────
+
+/**
+ * Create a temporary Chrome profile directory with DevTools set to "undocked"
+ * so it opens in a separate window instead of docked inside the browser.
+ * This keeps the main browser viewport at full desktop size.
+ */
+function createProfileDir() {
+  const dir = join(tmpdir(), `next-browser-profile-${process.pid}`);
+  mkdirSync(join(dir, "Default"), { recursive: true });
+  writeFileSync(
+    join(dir, "Default", "Preferences"),
+    JSON.stringify({
+      devtools: {
+        preferences: {
+          currentDockState: '"undocked"',
+        },
+      },
+    }),
+  );
+  return dir;
+}
 
 /**
  * Launch Chromium with React DevTools extension.
  *
- * - launchPersistentContext("") — empty user data dir (fresh profile each time)
+ * - launchPersistentContext with a pre-configured profile that sets DevTools
+ *   to undocked mode — DevTools opens in a separate window, not docked
  * - --load-extension loads the vendored React DevTools Chrome extension
  * - --auto-open-devtools-for-tabs makes the extension activate its backend
  *   on every tab (same as a developer manually opening DevTools)
@@ -393,13 +539,16 @@ export function network(idx?: number) {
  *   winning the race against the extension's content script
  */
 async function launch() {
-  const ctx = await chromium.launchPersistentContext("", {
+  const profileDir = createProfileDir();
+  profileDirPath = profileDir;
+  const ctx = await chromium.launchPersistentContext(profileDir, {
     headless: false,
-    viewport: null,
+    viewport: null, // let viewport follow the physical window size
     args: [
       `--disable-extensions-except=${extensionPath}`,
       `--load-extension=${extensionPath}`,
       "--auto-open-devtools-for-tabs",
+      "--window-size=1440,900",
     ],
   });
   await ctx.waitForEvent("serviceworker");

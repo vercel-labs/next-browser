@@ -11,6 +11,12 @@ if (cmd === "--help" || cmd === "-h" || !cmd) {
   process.exit(0);
 }
 
+if (cmd === "--version" || cmd === "-v") {
+  const { version } = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf-8"));
+  console.log(version);
+  process.exit(0);
+}
+
 if (cmd === "open") {
   if (!arg) {
     console.error("usage: next-browser open <url> [--cookies-json <file>]");
@@ -48,6 +54,18 @@ if (cmd === "ppr" && arg === "unlock") {
 if (cmd === "reload") {
   const res = await send("reload");
   exit(res, res.ok ? `reloaded → ${res.data}` : "");
+}
+
+if (cmd === "capture-goto") {
+  const res = await send("capture-goto", arg ? { url: arg } : {});
+  if (!res.ok) exit(res, "");
+  const data = res.data as { dir: string; frames: number };
+  exit(
+    res,
+    `${data.frames} frames → ${data.dir}\n` +
+      "\n" +
+      "frame-0000.png is the PPR shell. Remaining frames capture hydration → data.",
+  );
 }
 
 if (cmd === "restart-server") {
@@ -135,6 +153,24 @@ if (cmd === "network") {
   exit(res, res.ok ? String(res.data) : "");
 }
 
+if (cmd === "viewport") {
+  if (arg) {
+    const match = arg.match(/^(\d+)x(\d+)$/);
+    if (!match) {
+      console.error("usage: next-browser viewport <width>x<height>");
+      process.exit(1);
+    }
+    const width = Number(match[1]);
+    const height = Number(match[2]);
+    const res = await send("viewport", { width, height });
+    exit(res, res.ok ? `viewport set to ${width}x${height}` : "");
+  }
+  const res = await send("viewport", {});
+  if (!res.ok) exit(res, "");
+  const data = res.data as { width: number; height: number };
+  exit(res, `${data.width}x${data.height}`);
+}
+
 if (cmd === "close") {
   const res = await send("close");
   exit(res, "closed");
@@ -210,6 +246,7 @@ function printUsage() {
       "  push [path]        client-side navigation (interactive picker if no path)\n" +
       "  back               go back in history\n" +
       "  reload             reload current page\n" +
+      "  capture-goto [url]   capture loading sequence (PPR shell → hydration → data)\n" +
       "  restart-server     restart the Next.js dev server (clears fs cache)\n" +
       "\n" +
       "  ppr lock           enter PPR instant-navigation mode\n" +
@@ -218,6 +255,7 @@ function printUsage() {
       "  tree               show React component tree\n" +
       "  tree <id>          inspect component (props, hooks, state, source)\n" +
       "\n" +
+      "  viewport [WxH]     show or set viewport size (e.g. 1280x720)\n" +
       "  screenshot         save full-page screenshot to tmp file\n" +
       "  eval <script>      evaluate JS in page context\n" +
       "\n" +

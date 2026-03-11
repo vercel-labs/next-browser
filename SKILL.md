@@ -110,6 +110,25 @@ Browser back button.
 
 Hard reload current page.
 
+### `capture-goto [url]`
+
+Lock PPR, navigate to the URL, screenshot the shell, unlock, then screenshot
+frames every ~150ms as the page hydrates and loads data. Stops after 3s of no
+visual change (hard timeout 30s). Returns a directory of PNGs.
+
+```
+$ next-browser capture-goto http://localhost:3024/vercel/~/deployments
+12 frames → /tmp/next-browser-capture-goto-1710000000000
+
+frame-0000.png is the PPR shell. Remaining frames capture hydration → data.
+```
+
+Frame 0 is always the PPR shell (static HTML before hydration). The remaining
+frames show the transition through hydration and dynamic data loading. Read
+them with the Read tool to see the visual progression.
+
+Without a URL argument, captures the current page (re-navigates to it).
+
 ### `restart-server`
 
 Restart the Next.js dev server (POSTs to `/__nextjs_restart_dev`).
@@ -146,7 +165,11 @@ locked
 
 ### `ppr unlock`
 
-Exit PPR mode and print the shell analysis. Captures:
+Exit PPR mode and print the shell analysis. The output can be very large
+(hundreds of boundaries). Pipe through `| head -20` if you only need the
+summary line and the dynamic holes.
+
+Captures:
 1. Locked snapshot — which boundaries are suspended = holes in the shell
 2. Releases the lock, waits for boundaries to settle
 3. Unlocked snapshot — what blocked each boundary (suspendedBy)
@@ -233,6 +256,24 @@ IDs are valid until navigation. Re-run `tree` after `goto`/`push`.
 
 ---
 
+### `viewport [WxH]`
+
+Show or set the browser viewport size. Useful for testing responsive layouts.
+
+```
+$ next-browser viewport
+1440x900
+
+$ next-browser viewport 375x812
+viewport set to 375x812
+```
+
+Once set, the viewport stays fixed across navigations.
+`window.resizeTo()` via `eval` is a no-op in Playwright — always use this
+command to change dimensions.
+
+---
+
 ### `screenshot`
 
 Full-page PNG to a temp file. Returns the path. Read with the Read tool.
@@ -261,6 +302,9 @@ $ next-browser eval 'document.querySelector("nextjs-portal")?.shadowRoot?.queryS
 ```
 
 Use this to read the Next.js error overlay (it's in shadow DOM).
+
+For multi-statement code that uses `return`, wrap in an IIFE:
+`next-browser eval '(() => { const els = ...; return els.length; })()'`
 
 ---
 
