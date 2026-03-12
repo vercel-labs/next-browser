@@ -36,6 +36,7 @@ const installHook = readFileSync(
 let context: BrowserContext | null = null;
 let page: Page | null = null;
 let profileDirPath: string | null = null;
+let initialOrigin: string | null = null;
 
 // ── Browser lifecycle ────────────────────────────────────────────────────────
 
@@ -51,6 +52,7 @@ export async function open(url: string | undefined) {
     net.attach(page);
   }
   if (url) {
+    initialOrigin = new URL(url).origin;
     await page!.goto(url, { waitUntil: "domcontentloaded" });
   }
 }
@@ -80,6 +82,7 @@ export async function close() {
     const { rmSync } = await import("node:fs");
     rmSync(profileDirPath, { recursive: true, force: true });
     profileDirPath = null;
+    initialOrigin = null;
   }
 }
 
@@ -363,6 +366,7 @@ export async function push(path: string) {
 export async function goto(url: string) {
   if (!page) throw new Error("browser not open");
   const target = new URL(url, page.url()).href;
+  initialOrigin = new URL(target).origin;
   await page.goto(target, { waitUntil: "domcontentloaded" });
   return target;
 }
@@ -441,10 +445,16 @@ export async function evaluate(script: string) {
   return page.evaluate(script);
 }
 
-/** Call a Next.js dev server MCP tool (JSON-RPC over SSE at /_next/mcp). */
+/**
+ * Call a Next.js dev server MCP tool (JSON-RPC over SSE at /_next/mcp).
+ *
+ * Uses the initial navigation origin (before any proxy redirects) rather than
+ * the current page origin. This handles microfrontends proxies that redirect
+ * e.g. localhost:3332 -> localhost:3024 but don't forward /_next/mcp.
+ */
 export async function mcp(tool: string, args?: Record<string, unknown>) {
   if (!page) throw new Error("browser not open");
-  const origin = new URL(page.url()).origin;
+  const origin = initialOrigin ?? new URL(page.url()).origin;
   return nextMcp.call(origin, tool, args);
 }
 
