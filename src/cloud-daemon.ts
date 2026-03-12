@@ -55,14 +55,15 @@ async function run(cmd: Cmd) {
   if (cmd.action === "exec") {
     if (!cmd.command) return { ok: false, error: "missing command" };
     const result = await cloud.exec(cmd.command);
-    const data = [
+    const output = [
       result.stdout,
       result.stderr ? `stderr:\n${result.stderr}` : "",
       result.exitCode !== 0 ? `exit code: ${result.exitCode}` : "",
     ]
       .filter(Boolean)
       .join("\n");
-    return { ok: result.exitCode === 0, data };
+    if (result.exitCode === 0) return { ok: true, data: output };
+    return { ok: false, error: output || `exit code: ${result.exitCode}` };
   }
   if (cmd.action === "status") {
     const data = await cloud.status();
