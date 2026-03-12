@@ -94,8 +94,8 @@ export async function create(): Promise<string> {
 
   const { Sandbox } = await getSandboxSDK();
   sandbox = await Sandbox.create({
-    resources: { vcpus: 4 },
-    timeout: 900_000, // 15 min
+    resources: { vcpus: 8 },
+    timeout: 1_800_000, // 30 min
     ports: [3000],
     runtime: "node22",
   });

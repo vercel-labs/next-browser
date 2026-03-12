@@ -30,7 +30,7 @@ next-browser cloud status      # show sandbox info
 next-browser cloud destroy     # tear down sandbox
 ```
 
-**`cloud create` auto-provisions:**
+**`cloud create` auto-provisions (8 vCPUs / 16GB, 30 min timeout):**
 1. Chrome system deps (headless Chromium on Amazon Linux 2023)
 2. `next-browser` globally + Playwright Chromium
 3. SSH key (`~/.ssh/id_ed25519` → sandbox, + github.com known_hosts)
@@ -41,28 +41,35 @@ next-browser cloud destroy     # tear down sandbox
 
 ### 3. Validated End-to-End
 
-Tested the full flow against `vercel/front`:
+**Against `vercel/front` (real production monorepo):**
 - ✅ SSH auth → `git clone --depth 1 git@github.com:vercel/front.git` (34K files)
-- ✅ Private packages → `pnpm install` with npmrc auth (1m 47s)
+- ✅ Private packages → `pnpm install` with npmrc auth (1m 38s)
 - ✅ Node 24 → nvm install in sandbox
 - ✅ `.env.local` upload → base64 pipe through `cloud exec`
-- ✅ Dev server start → `NEXT_PUBLIC_DASH=1 pnpm vercel-site`
-- ❌ Running dev server + Chromium simultaneously → **OOM killed** at 4 vCPUs / 8GB
+- ✅ Dev server start → `NEXT_PUBLIC_DASH=1 pnpm vercel-site` (port 3024)
+- ✅ **Headless Chromium + dev server simultaneously** — works at 8 vCPUs / 16GB (OOM at 4 vCPUs)
+- ✅ **`browser.open()` + `screenshot()` + `tree()`** — 5837 React nodes on Vercel login page
+- ⚠️ **CLI `next-browser open` fails** — daemon spawn mechanism conflicts with `cloud exec` process management. Direct API calls work fine.
 
-Tested against simple Next.js app (create-next-app):
-- ✅ All commands work: `tree`, `tree <id>`, `screenshot`, `eval`, `routes`, `network`, `viewport`
+**Against simple Next.js app (create-next-app):**
+- ✅ All CLI commands work: `tree`, `tree <id>`, `screenshot`, `eval`, `routes`, `network`, `viewport`
 - ✅ Full React component tree in headless mode (no extension needed)
+
+### 4. Key Findings
+
+- **npm token expiry** — `npm login --scope=@vercel-private` needed to refresh tokens for private `@vercel/*` packages. Local pnpm installs mask this because packages are cached in the store.
+- **Vercel Sandbox needs `.vercel/` project link** — the `@vercel/oidc` module walks up the directory tree looking for `.vercel/project.json`. We symlink from `prototypes/cloud/.vercel`.
+- **`pnpm vercel-site` not `pnpm --filter vercel-site dev`** — the front repo uses a custom script that sets up microfrontends routing (port 3024).
 
 ## What's Left
 
 ### Immediate
-- **Bump sandbox resources** — 4 vCPUs / 8GB is not enough for front repo + Chromium. Need 8+ vCPUs. Just a config change in `cloud.ts`.
-- **File upload/download commands** — `cloud upload <local> <remote>` and `cloud download <remote> <local>`. The `upload` action is partially implemented in the daemon. Download would use `sandbox.readFileToBuffer()`.
-- **Timeout on `cloud exec`** — long-running commands (pnpm install, dev server) can exceed the socket read timeout. Need either streaming output or a longer timeout.
+- **Fix daemon spawn in `cloud exec`** — `next-browser open` spawns a detached daemon which conflicts with `sandbox.runCommand()` waiting for process exit. Options: (a) run in-process instead of daemon when headless, (b) use sandbox's detached command mode.
+- **File upload/download commands** — `cloud upload <local> <remote>` and `cloud download <remote> <local>` for screenshots, env files, etc.
 
 ### Future
 - **`cloud open`** — higher-level command that does: create + clone + install + dev server + browser open, all in one.
 - **`cloud sync`** — incremental file sync (upload changed files by mtime) for fast iteration.
 - **`cloud logs`** — stream dev server logs from the sandbox.
-- **Snapshot/restore** — use `sandbox.snapshot()` to save a provisioned sandbox and restore it instantly (skip the 3+ min setup).
+- **Snapshot/restore** — use `sandbox.snapshot()` to save a provisioned sandbox and restore it instantly (skip the ~3 min setup).
 - **PPR in headless** — the `ppr lock/unlock` commands should work since they use the same hook, but untested in cloud.
