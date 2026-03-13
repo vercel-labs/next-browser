@@ -1,6 +1,6 @@
 {
   "name": "@vercel/next-browser",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Headed Playwright browser with React DevTools pre-loaded",
   "license": "MIT",
   "repository": {
