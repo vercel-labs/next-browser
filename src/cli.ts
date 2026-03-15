@@ -22,6 +22,7 @@ if (cmd === "open") {
     console.error("usage: next-browser open <url> [--cookies-json <file>]");
     process.exit(1);
   }
+  const url = /^https?:\/\//.test(arg) ? arg : `http://${arg}`;
   const cookieIdx = args.indexOf("--cookies-json");
   const cookieFile = cookieIdx >= 0 ? args[cookieIdx + 1] : undefined;
 
@@ -30,15 +31,15 @@ if (cmd === "open") {
     if (!res.ok) exit(res, "");
     const raw = readFileSync(cookieFile, "utf-8");
     const cookies = JSON.parse(raw);
-    const domain = new URL(arg).hostname;
+    const domain = new URL(url).hostname;
     const cRes = await send("cookies", { cookies, domain });
     if (!cRes.ok) exit(cRes, "");
-    await send("goto", { url: arg });
-    exit(res, `opened → ${arg} (${cookies.length} cookies for ${domain})`);
+    await send("goto", { url });
+    exit(res, `opened → ${url} (${cookies.length} cookies for ${domain})`);
   }
 
-  const res = await send("open", { url: arg });
-  exit(res, `opened → ${arg}`);
+  const res = await send("open", { url });
+  exit(res, `opened → ${url}`);
 }
 
 if (cmd === "ppr" && arg === "lock") {

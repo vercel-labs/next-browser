@@ -33,5 +33,10 @@ export async function call(
   if (parsed.error) throw new Error(parsed.error.message);
 
   const text = parsed.result?.content?.[0]?.text;
-  return text ? JSON.parse(text) : parsed.result;
+  if (!text) return parsed.result;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
