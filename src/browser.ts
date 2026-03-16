@@ -365,8 +365,30 @@ export async function push(path: string) {
 /** Full-page navigation (new document load). Resolves relative URLs against the current page. */
 export async function goto(url: string) {
   if (!page) throw new Error("browser not open");
+  await page.unrouteAll({ behavior: "wait" });
   const target = new URL(url, page.url()).href;
   initialOrigin = new URL(target).origin;
+  await page.goto(target, { waitUntil: "domcontentloaded" });
+  return target;
+}
+
+/**
+ * Navigate like goto but block external script resources.
+ * The HTML loads and inline <script> blocks still execute, but external JS
+ * bundles (React, hydration, etc.) are aborted. Shows the SSR shell.
+ */
+export async function ssrGoto(url: string) {
+  if (!page) throw new Error("browser not open");
+  const target = new URL(url, page.url()).href;
+  initialOrigin = new URL(target).origin;
+
+  // Clear any stale route handlers from previous ssr-goto calls.
+  await page.unrouteAll({ behavior: "wait" });
+
+  await page.route("**/*", (route) => {
+    if (route.request().resourceType() === "script") return route.abort();
+    return route.continue();
+  });
   await page.goto(target, { waitUntil: "domcontentloaded" });
   return target;
 }

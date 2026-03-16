@@ -84,7 +84,8 @@ Close browser and kill daemon.
 
 ### `goto <url>`
 
-Full-page navigation (new document load). Server renders fresh.
+Navigate to a URL with a fresh server render. The browser loads a new
+document — equivalent to typing a URL in the address bar.
 
 ```
 $ next-browser goto http://localhost:3024/vercel/~/deployments
@@ -93,7 +94,9 @@ $ next-browser goto http://localhost:3024/vercel/~/deployments
 
 ### `push [path]`
 
-Client-side navigation via `next.router.push()`. Without a path, shows an interactive picker of all links (↑/↓, enter).
+Client-side navigation — the page transitions without a full reload, the
+way a user clicks a link in the app. Without a path, shows an interactive
+picker of all links on the current page.
 
 ```
 $ next-browser push /vercel/~/deployments
@@ -104,17 +107,35 @@ If push fails silently (URL unchanged), the route wasn't prefetched.
 
 ### `back`
 
-Browser back button.
+Go back one page in browser history.
 
 ### `reload`
 
-Hard reload current page.
+Reload the current page from the server.
+
+### `ssr-goto <url>`
+
+See exactly what the server sent before any client-side JavaScript runs.
+Useful for verifying SSR content, checking what search engines and social
+crawlers see, debugging hydration mismatches, and confirming that data
+appears in the initial HTML rather than being fetched client-side.
+
+The page renders without hydration — no React, no client-side routing,
+no fetch calls. What you see is the raw server output plus CSS.
+
+```
+$ next-browser ssr-goto http://localhost:3000/dashboard
+→ http://localhost:3000/dashboard (external scripts blocked)
+```
+
+Use `goto` or `reload` afterward to restore normal behavior.
 
 ### `capture-goto [url]`
 
-Lock PPR, navigate to the URL, screenshot the shell, unlock, then screenshot
-frames every ~150ms as the page hydrates and loads data. Stops after 3s of no
-visual change (hard timeout 30s). Returns a directory of PNGs.
+Record the full loading sequence of a page as a series of screenshots —
+from the initial PPR shell through hydration to the fully loaded state.
+Useful for seeing exactly how a page progressively reveals content and
+identifying where visual jank or long loading gaps occur.
 
 ```
 $ next-browser capture-goto http://localhost:3024/vercel/~/deployments
@@ -123,25 +144,24 @@ $ next-browser capture-goto http://localhost:3024/vercel/~/deployments
 frame-0000.png is the PPR shell. Remaining frames capture hydration → data.
 ```
 
-Frame 0 is always the PPR shell (static HTML before hydration). The remaining
-frames show the transition through hydration and dynamic data loading. Read
-them with the Read tool to see the visual progression.
+Frame 0 is the PPR shell (what the user sees instantly). Remaining frames
+show the page filling in. Read them with the Read tool to see the
+visual progression.
 
 Without a URL argument, captures the current page (re-navigates to it).
 
 ### `restart-server`
 
-Restart the Next.js dev server (POSTs to `/__nextjs_restart_dev`).
-Clears filesystem cache, forces clean recompile. Polls until the server
-has a new execution ID, then reloads the page.
+Restart the Next.js dev server and clear its caches. Forces a clean
+recompile from scratch.
 
 Last resort. HMR picks up code changes on its own — reach for this only
 when you have evidence the dev server is wedged (stale output after edits,
 builds that never finish, errors that don't clear).
 
-`restart-server` often exits with `net::ERR_ABORTED` — this is expected
-(the page detaches during restart). Follow up with `goto <url>` to
-re-navigate after the server is back. Don't treat this error as a failure.
+Often exits with `net::ERR_ABORTED` — this is expected (the page detaches
+during restart). Follow up with `goto <url>` to re-navigate after the
+server is back. Don't treat this error as a failure.
 
 ---
 
@@ -150,12 +170,12 @@ re-navigate after the server is back. Don't treat this error as a failure.
 **Prerequisite:** PPR requires `cacheComponents` to be enabled in
 `next.config`. Without it the shell won't have pre-rendered content to show.
 
-Enter PPR instant-navigation mode. Sets the `next-instant-navigation-testing`
-cookie. After this:
-- `goto` — server sends raw PPR shell (static HTML with `<template>` holes).
-  No hydration — what you see is server HTML only.
-- `push` — Next.js router blocks dynamic data writes, shows prefetched shell.
-  Requires the current page to already be hydrated (prefetch is client-side),
+Freeze dynamic content so you can inspect the static shell — the part of
+the page that's instantly available before any data loads. After locking:
+- `goto` — shows the server-rendered shell with holes where dynamic
+  content would appear.
+- `push` — shows what the client already has from prefetching. Requires
+  the current page to already be hydrated (prefetch is client-side),
   so lock *after* you've landed on the origin, not before.
 
 ```
@@ -165,15 +185,10 @@ locked
 
 ### `ppr unlock`
 
-Exit PPR mode and print the shell analysis. The output can be very large
-(hundreds of boundaries). Pipe through `| head -20` if you only need the
-summary line and the dynamic holes.
-
-Captures:
-1. Locked snapshot — which boundaries are suspended = holes in the shell
-2. Releases the lock, waits for boundaries to settle
-3. Unlocked snapshot — what blocked each boundary (suspendedBy)
-4. Matches them, prints Dynamic holes / Static
+Resume dynamic content and print a shell analysis — which Suspense
+boundaries were holes in the shell, what blocked them, and which were
+static. The output can be very large (hundreds of boundaries). Pipe
+through `| head -20` if you only need the summary and dynamic holes.
 
 ```
 $ next-browser ppr unlock
@@ -214,7 +229,8 @@ and `logs` to find the root cause.
 
 ### `tree`
 
-Full React component tree (via DevTools `flushInitialOperations`).
+Full React component tree — every component on the page with its
+hierarchy, like the Components panel in React DevTools.
 
 ```
 $ next-browser tree
@@ -314,7 +330,7 @@ supported. Wrap in an async IIFE if you need to await:
 
 ### `errors`
 
-Build and runtime errors from the Next.js dev server MCP.
+Build and runtime errors for the current page.
 
 ```
 $ next-browser errors
@@ -344,7 +360,7 @@ $ next-browser errors
 
 ### `logs`
 
-Recent dev server log output (NDJSON from `.next/dev/logs/`).
+Recent dev server log output.
 
 ```
 $ next-browser logs
@@ -400,7 +416,8 @@ response body:
 
 ### `page`
 
-Route segments for the current URL (via Next.js MCP).
+Route segments for the current URL — which layouts, pages, and
+boundaries are active.
 
 ```
 $ next-browser page

@@ -96,6 +96,12 @@ if (cmd === "goto") {
   exit(res, res.ok ? `→ ${res.data}` : "");
 }
 
+if (cmd === "ssr-goto") {
+  const res = await send("ssr-goto", { url: arg });
+  exit(res, res.ok ? `→ ${res.data} (external scripts blocked)` : "");
+}
+
+
 if (cmd === "back") {
   const res = await send("back");
   exit(res, "back");
@@ -244,6 +250,7 @@ function printUsage() {
       "  close              close browser and daemon\n" +
       "\n" +
       "  goto <url>         full-page navigation (new document load)\n" +
+      "  ssr-goto <url>     goto but block external scripts (SSR shell)\n" +
       "  push [path]        client-side navigation (interactive picker if no path)\n" +
       "  back               go back in history\n" +
       "  reload             reload current page\n" +

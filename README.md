@@ -56,6 +56,7 @@ open <url> [--cookies-json <file>]  launch browser and navigate
 close              close browser and daemon
 
 goto <url>         full-page navigation (new document load)
+ssr-goto <url>     goto but block external scripts (SSR shell)
 push [path]        client-side navigation (interactive picker if no path)
 back               go back in history
 reload             reload current page
