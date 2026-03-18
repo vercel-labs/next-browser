@@ -481,6 +481,96 @@ async function hideDevOverlay() {
   }).catch(() => {});
 }
 
+/**
+ * Navigate to a URL and collect React hydration timing from console.timeStamp
+ * entries emitted by React's profiling build. React calls
+ * console.timeStamp(label, startTime, endTime, track, trackGroup, color)
+ * where startTime/endTime are performance.now() values from the reconciler.
+ *
+ * The "Hydrated" label marks the render phase of hydration (reconciling
+ * server-rendered HTML). Components hydrated in that pass use tertiary colors
+ * on the "Components ⚛" track. Commit, layout effects, and passive effects
+ * are logged as separate phases.
+ *
+ * Requires a React profiling build (enableProfilerTimer = true).
+ * Production builds strip console.timeStamp calls — use next dev or
+ * a profiling build to get data.
+ */
+export async function hydration(url?: string) {
+  if (!page) throw new Error("browser not open");
+  const targetUrl = url || page.url();
+
+  // Clear any previous timing entries.
+  await page.evaluate(() => {
+    (window as any).__NEXT_BROWSER_REACT_TIMING__ = [];
+  });
+
+  // Full page navigation — triggers hydration.
+  await page.goto(targetUrl, { waitUntil: "load" });
+
+  // Wait for passive effects and late commits to flush.
+  await new Promise((r) => setTimeout(r, 3000));
+
+  // Collect captured timing entries.
+  const entries = await page.evaluate(() => {
+    return (window as any).__NEXT_BROWSER_REACT_TIMING__ ?? [];
+  }) as Array<{
+    label: string;
+    startTime: number;
+    endTime: number;
+    track: string;
+    trackGroup: string;
+    color: string;
+  }>;
+
+  // Separate scheduler-level phases from component-level entries.
+  // Filter out zero-duration track registration entries.
+  const phases = entries.filter((e) => e.trackGroup === "Scheduler ⚛" && e.endTime > e.startTime);
+  const components = entries.filter((e) => e.track === "Components ⚛" && e.endTime > e.startTime);
+
+  // Find hydration phase(s) specifically.
+  const hydrationPhases = phases.filter((e) => e.label === "Hydrated");
+
+  // Hydrated components use tertiary colors in React's performance track.
+  const hydratedComponents = components.filter((e) =>
+    e.color?.startsWith("tertiary"),
+  );
+
+  // Compute overall hydration render window.
+  let hydrationStart = Infinity;
+  let hydrationEnd = 0;
+  for (const p of hydrationPhases) {
+    if (p.startTime < hydrationStart) hydrationStart = p.startTime;
+    if (p.endTime > hydrationEnd) hydrationEnd = p.endTime;
+  }
+
+  return {
+    url: targetUrl,
+    hydration: hydrationPhases.length > 0
+      ? {
+          startTime: Math.round(hydrationStart * 100) / 100,
+          endTime: Math.round(hydrationEnd * 100) / 100,
+          duration: Math.round((hydrationEnd - hydrationStart) * 100) / 100,
+        }
+      : null,
+    phases: phases.map((p) => ({
+      label: p.label,
+      startTime: Math.round(p.startTime * 100) / 100,
+      endTime: Math.round(p.endTime * 100) / 100,
+      duration: Math.round((p.endTime - p.startTime) * 100) / 100,
+    })),
+    hydratedComponents: hydratedComponents
+      .map((c) => ({
+        name: c.label,
+        startTime: Math.round(c.startTime * 100) / 100,
+        endTime: Math.round(c.endTime * 100) / 100,
+        duration: Math.round((c.endTime - c.startTime) * 100) / 100,
+      }))
+      .sort((a, b) => b.duration - a.duration),
+    totalEntries: entries.length,
+  };
+}
+
 /** Evaluate arbitrary JavaScript in the page context. */
 export async function evaluate(script: string) {
   if (!page) throw new Error("browser not open");
@@ -578,6 +668,36 @@ async function launch() {
     args: headless ? ["--no-sandbox"] : [],
   });
   await ctx.addInitScript(installHook);
+
+  // Intercept console.timeStamp to capture React's Performance Track entries.
+  // React's profiling build calls console.timeStamp(label, startTime, endTime,
+  // track, trackGroup, color) for render phases and per-component timing.
+  // startTime/endTime are performance.now() values from the reconciler.
+  await ctx.addInitScript(() => {
+    const entries: Array<{
+      label: string;
+      startTime: number;
+      endTime: number;
+      track: string;
+      trackGroup?: string;
+      color?: string;
+    }> = [];
+    (window as any).__NEXT_BROWSER_REACT_TIMING__ = entries;
+    const orig = console.timeStamp;
+    console.timeStamp = function (label?: string, ...args: any[]) {
+      if (typeof label === "string" && args.length >= 2 && typeof args[0] === "number") {
+        entries.push({
+          label,
+          startTime: args[0],
+          endTime: args[1],
+          track: args[2] ?? "",
+          trackGroup: args[3] ?? "",
+          color: args[4] ?? "",
+        });
+      }
+      return orig.apply(console, [label, ...args] as any);
+    };
+  });
 
   // Next.js devtools overlay is removed before each screenshot via hideDevOverlay().
 

@@ -126,6 +126,10 @@ async function run(cmd: Cmd) {
     const data = await browser.mcp(cmd.tool!, cmd.args);
     return { ok: true, data };
   }
+  if (cmd.action === "hydration") {
+    const data = await browser.hydration(cmd.url as string | undefined);
+    return { ok: true, data };
+  }
   if (cmd.action === "network") {
     const data = await browser.network(cmd.idx);
     return { ok: true, data };
