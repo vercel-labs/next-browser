@@ -143,15 +143,9 @@ export async function unlock() {
   await stabilizeSuspenseState(page);
 
   // Capture what's suspended right now under the lock.
-  let locked = await suspenseTree.snapshot(page).catch(() => [] as suspenseTree.Boundary[]);
-
-  // For initial-load (goto) under lock, DevTools may not be connected —
-  // the shell uses a production-like renderer. Fall back to counting
-  // <template id="B:..."> elements in the DOM (PPR's Suspense placeholders).
-  const hasDevToolsData = locked.some((b) => b.parentID !== 0);
-  if (!hasDevToolsData) {
-    locked = await suspenseTree.snapshotFromDom(page);
-  }
+  // Under goto + lock, DevTools may not be connected (shell is static HTML).
+  // That's fine — we get all the rich data from the unlocked snapshot below.
+  const locked = await suspenseTree.snapshot(page).catch(() => [] as suspenseTree.Boundary[]);
 
   // Release the lock. instant() clears the cookie.
   // - push case: dynamic content streams in immediately (no reload)
@@ -161,15 +155,31 @@ export async function unlock() {
   await settled;
   settled = null;
 
+  // For goto case: the page auto-reloads. Wait for the new page to load
+  // and React/DevTools to reconnect before trying to snapshot boundaries.
+  await page.waitForLoadState("load").catch(() => {});
+  await new Promise((r) => setTimeout(r, 2000));
+
   // Wait for all boundaries to resolve after unlock.
-  // Polls the DevTools suspense tree (works for both push and goto cases).
   await waitForSuspenseToSettle(page);
 
   // Capture the fully-resolved state with rich suspendedBy data.
   const unlocked = await suspenseTree.snapshot(page).catch(() => [] as suspenseTree.Boundary[]);
 
-  if (locked.length === 0 && unlocked.length === 0) return null;
-  return suspenseTree.formatAnalysis(unlocked, locked, origin);
+  if (locked.length === 0 && unlocked.length === 0) {
+    return { text: "No suspense boundaries detected.", boundaries: unlocked, locked, report: null };
+  }
+
+  const report = await suspenseTree.analyzeBoundaries(unlocked, locked, origin);
+  const pageMetadata = await nextMcp
+    .call(initialOrigin ?? origin, "get_page_metadata")
+    .catch(() => null);
+  if (pageMetadata) {
+    suspenseTree.annotateReportWithPageMetadata(report, pageMetadata);
+  }
+
+  const text = suspenseTree.formatReport(report);
+  return { text, boundaries: unlocked, locked, report };
 }
 
 /**
@@ -251,6 +261,7 @@ export async function captureGoto(url?: string) {
   let frameIdx = 0;
 
   async function snap() {
+    await hideDevOverlay();
     const path = join(dir, `frame-${String(frameIdx).padStart(4, "0")}.png`);
     const buf = await page!.screenshot({ path }).catch(() => null);
     frameIdx++;
@@ -451,14 +462,23 @@ async function formatSource([file, line, col]: [string, number, number]) {
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 
-/** Full-page screenshot saved to a temp file. Returns the file path. */
+/** Viewport screenshot saved to a temp file. Returns the file path. */
 export async function screenshot() {
   if (!page) throw new Error("browser not open");
+  await hideDevOverlay();
   const { join } = await import("node:path");
   const { tmpdir } = await import("node:os");
   const path = join(tmpdir(), `next-browser-${Date.now()}.png`);
-  await page.screenshot({ path, fullPage: true });
+  await page.screenshot({ path });
   return path;
+}
+
+/** Remove Next.js devtools overlay from the page before screenshots. */
+async function hideDevOverlay() {
+  if (!page) return;
+  await page.evaluate(() => {
+    document.querySelectorAll("[data-nextjs-dev-overlay]").forEach((el) => el.remove());
+  }).catch(() => {});
 }
 
 /** Evaluate arbitrary JavaScript in the page context. */
@@ -558,5 +578,8 @@ async function launch() {
     args: headless ? ["--no-sandbox"] : [],
   });
   await ctx.addInitScript(installHook);
+
+  // Next.js devtools overlay is removed before each screenshot via hideDevOverlay().
+
   return ctx;
 }

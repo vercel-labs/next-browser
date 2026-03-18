@@ -49,7 +49,9 @@ if (cmd === "ppr" && arg === "lock") {
 
 if (cmd === "ppr" && arg === "unlock") {
   const res = await send("unlock");
-  exit(res, res.ok && res.data ? `unlocked\n\n${res.data}` : "unlocked");
+  const d = res.ok ? (res.data as { text?: string } | string | null) : null;
+  const text = typeof d === "string" ? d : d?.text ?? "";
+  exit(res, res.ok ? `unlocked${text ? `\n\n${text}` : ""}` : "unlocked");
 }
 
 if (cmd === "reload") {
