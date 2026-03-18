@@ -157,6 +157,45 @@ if (cmd === "action") {
   exit(res, res.ok ? json(res.data) : "");
 }
 
+if (cmd === "hydration") {
+  const res = await send("hydration", arg ? { url: arg } : {});
+  if (!res.ok) exit(res, "");
+  const d = res.data as {
+    url: string;
+    hydration: { startTime: number; endTime: number; duration: number } | null;
+    phases: { label: string; startTime: number; endTime: number; duration: number }[];
+    hydratedComponents: { name: string; startTime: number; endTime: number; duration: number }[];
+    totalEntries: number;
+  };
+  const lines: string[] = [`# React Hydration Timing — ${d.url}`];
+  if (d.hydration) {
+    lines.push(
+      `# Hydration render: ${d.hydration.duration}ms (${d.hydration.startTime}ms → ${d.hydration.endTime}ms)`,
+    );
+  } else {
+    lines.push("# No hydration phase detected (requires React profiling build)");
+  }
+  lines.push("");
+  if (d.phases.length > 0) {
+    lines.push("## Scheduler phases");
+    for (const p of d.phases) {
+      lines.push(`  ${p.label.padEnd(24)} ${String(p.duration).padStart(8)}ms  (${p.startTime} → ${p.endTime})`);
+    }
+    lines.push("");
+  }
+  if (d.hydratedComponents.length > 0) {
+    lines.push(`## Hydrated components (${d.hydratedComponents.length} total, sorted by duration)`);
+    const top = d.hydratedComponents.slice(0, 30);
+    for (const c of top) {
+      lines.push(`  ${c.name.padEnd(40)} ${String(c.duration).padStart(8)}ms`);
+    }
+    if (d.hydratedComponents.length > 30) {
+      lines.push(`  ... and ${d.hydratedComponents.length - 30} more`);
+    }
+  }
+  exit(res, lines.join("\n"));
+}
+
 if (cmd === "network") {
   const res = await send("network", arg != null ? { idx: Number(arg) } : {});
   exit(res, res.ok ? String(res.data) : "");
@@ -271,6 +310,7 @@ function printUsage() {
       "\n" +
       "  errors             show build/runtime errors\n" +
       "  logs               show recent dev server log output\n" +
+      "  hydration [url]    measure React hydration timing (requires profiling build)\n" +
       "  network [idx]      list network requests, or inspect one\n" +
       "\n" +
       "  page               show current page segments and router info\n" +
