@@ -327,9 +327,11 @@ $ next-browser screenshot
 Don't narrate what the screenshot shows — the user can see the browser.
 State your conclusion or next action, not a description of the page.
 
-### `eval <script>`
+### `eval <script>` · `eval --file <path>` · `eval -`
 
 Run JS in page context. Returns the result as JSON.
+
+**For simple one-liners**, pass the script inline:
 
 ```
 $ next-browser eval 'document.title'
@@ -337,15 +339,25 @@ $ next-browser eval 'document.title'
 
 $ next-browser eval 'document.querySelectorAll("a[href]").length'
 47
-
-$ next-browser eval 'document.querySelector("nextjs-portal")?.shadowRoot?.querySelector("[data-nextjs-dialog]")?.textContent'
-"Runtime ErrorCall Stack 6..."
 ```
 
-Use this to read the Next.js error overlay (it's in shadow DOM).
+**For multi-line or quote-heavy scripts**, use `--file` (or `-f`) to avoid
+shell quoting issues entirely:
 
-For multi-statement code that uses `return`, wrap in an IIFE:
-`next-browser eval '(() => { const els = ...; return els.length; })()'`
+```bash
+cat > /tmp/nb-eval.js << 'SCRIPT'
+(() => {
+  // your JS here — no shell escaping needed
+  return someResult;
+})()
+SCRIPT
+next-browser eval --file /tmp/nb-eval.js
+```
+
+You can also pipe via stdin: `echo 'document.title' | next-browser eval -`
+
+Use this to read the Next.js error overlay (it's in shadow DOM):
+`next-browser eval 'document.querySelector("nextjs-portal")?.shadowRoot?.querySelector("[data-nextjs-dialog]")?.textContent'`
 
 `eval` runs synchronously in page context — top-level `await` is not
 supported. Wrap in an async IIFE if you need to await:
