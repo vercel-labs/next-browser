@@ -115,11 +115,27 @@ if (cmd === "screenshot") {
 }
 
 if (cmd === "eval") {
-  if (!arg) {
-    console.error("usage: next-browser eval <script>");
+  let script: string | undefined;
+  if (arg === "--file" || arg === "-f") {
+    const filePath = args[2];
+    if (!filePath) {
+      console.error("usage: next-browser eval --file <path>");
+      process.exit(1);
+    }
+    script = readFileSync(filePath, "utf-8");
+  } else if (arg === "-") {
+    // Read from stdin
+    const chunks: Buffer[] = [];
+    for await (const chunk of process.stdin) chunks.push(chunk);
+    script = Buffer.concat(chunks).toString("utf-8");
+  } else {
+    script = arg;
+  }
+  if (!script) {
+    console.error("usage: next-browser eval <script>\n       next-browser eval --file <path>\n       echo 'script' | next-browser eval -");
     process.exit(1);
   }
-  const res = await send("eval", { script: arg });
+  const res = await send("eval", { script });
   exit(res, res.ok ? json(res.data) : "");
 }
 
@@ -268,6 +284,8 @@ function printUsage() {
       "  viewport [WxH]     show or set viewport size (e.g. 1280x720)\n" +
       "  screenshot         save full-page screenshot to tmp file\n" +
       "  eval <script>      evaluate JS in page context\n" +
+      "  eval --file <path>  evaluate JS from a file\n" +
+      "  eval -              evaluate JS from stdin\n" +
       "\n" +
       "  errors             show build/runtime errors\n" +
       "  logs               show recent dev server log output\n" +
