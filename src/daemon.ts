@@ -50,6 +50,8 @@ type Cmd = {
   tool?: string;
   args?: Record<string, unknown>;
   script?: string;
+  selector?: string;
+  value?: string;
   idx?: number;
   cookies?: { name: string; value: string }[];
   domain?: string;
@@ -118,8 +120,20 @@ async function run(cmd: Cmd) {
     const data = await browser.node(cmd.nodeId!);
     return { ok: true, data };
   }
+  if (cmd.action === "snapshot") {
+    const data = await browser.snapshot();
+    return { ok: true, data };
+  }
+  if (cmd.action === "click") {
+    await browser.click(cmd.selector!);
+    return { ok: true };
+  }
+  if (cmd.action === "fill") {
+    await browser.fill(cmd.selector!, cmd.value!);
+    return { ok: true };
+  }
   if (cmd.action === "eval") {
-    const data = await browser.evaluate(cmd.script!);
+    const data = await browser.evaluate(cmd.script!, cmd.selector);
     return { ok: true, data };
   }
   if (cmd.action === "mcp") {

@@ -327,11 +327,106 @@ $ next-browser screenshot
 Don't narrate what the screenshot shows — the user can see the browser.
 State your conclusion or next action, not a description of the page.
 
-### `eval <script>` · `eval --file <path>` · `eval -`
+**Prefer `snapshot` over `screenshot`** when you need to understand
+what's on the page or decide what to interact with. `snapshot`
+returns structured, semantic data (roles, names, state) that you can act
+on directly — screenshots are pixels you have to interpret. Use
+`screenshot` only when visual layout matters (CSS issues, verifying
+appearance, PPR shell inspection).
+
+### `snapshot`
+
+Snapshot the page's accessibility tree — the semantic structure a screen
+reader sees — with `[ref=eN]` markers on every interactive element. Use
+this to discover what's on the page before clicking.
+
+```
+$ next-browser snapshot
+- navigation "Main"
+  - link "Home" [ref=e0]
+  - link "Dashboard" [ref=e1]
+- main
+  - heading "Settings"
+  - tablist
+    - tab "General" [ref=e2] (selected)
+    - tab "Security" [ref=e3]
+  - region "Profile"
+    - textbox "Username" [ref=e4]
+    - button "Save" [ref=e5]
+```
+
+The tree shows headings, landmarks (`navigation`, `main`, `region`), and
+state (`selected`, `checked`, `expanded`, `disabled`) so you understand
+page layout, not just a flat element list.
+
+Refs are ephemeral — they reset on every `snapshot` call and are
+invalid after navigation. Re-run `snapshot` after `goto`/`push`.
+
+### `click <ref|text|selector>`
+
+Click an element using real pointer events (`pointerdown → mousedown →
+pointerup → mouseup → click`). This works with libraries that ignore
+synthetic `.click()` (Radix UI, Headless UI, etc.).
+
+Three ways to target:
+
+| Input            | Example                | How it resolves                       |
+| ---              | ---                    | ---                                   |
+| Ref from tree    | `click e3`             | Looks up role+name from last snapshot |
+| Plain text       | `click "Security"`     | Playwright `text=Security` selector   |
+| Playwright selector | `click "#submit-btn"` | Used as-is (CSS, `role=`, etc.)    |
+
+**Recommended workflow:** run `snapshot` first, then `click eN`.
+Refs are the most reliable — they resolve via ARIA role+name, so they
+work even when elements have no stable CSS selector.
+
+```
+$ next-browser snapshot
+- tablist
+  - tab "General" [ref=e0] (selected)
+  - tab "Security" [ref=e1]
+$ next-browser click e1
+clicked
+$ next-browser snapshot
+- tablist
+  - tab "General" [ref=e0]
+  - tab "Security" [ref=e1] (selected)
+```
+
+### `fill <ref|selector> <value>`
+
+Fill a text input or textarea. Clears existing content, then types the
+new value — dispatches all the events React and other frameworks expect.
+
+```
+$ next-browser snapshot
+- textbox "Username" [ref=e4]
+$ next-browser fill e4 "judegao"
+filled
+```
+
+### `eval [ref] <script>` · `eval [ref] --file <path>` · `eval -`
 
 Run JS in page context. Returns the result as JSON.
 
-**For simple one-liners**, pass the script inline:
+**With a ref**, the script receives the DOM element as its argument —
+useful for inspecting a snapshot node or bridging to React internals:
+
+```
+$ next-browser eval e0 'el => el.tagName'
+"BUTTON"
+
+$ next-browser eval e0 'el => {
+  const key = Object.keys(el).find(k => k.startsWith("__reactFiber$"));
+  if (!key) return null;
+  let fiber = el[key];
+  while (fiber && typeof fiber.type !== "function") fiber = fiber.return;
+  return fiber?.type?.displayName || fiber?.type?.name || null;
+}'
+"LoginButton"
+```
+
+**For simple one-liners** (no ref), pass the script inline:
 
 ```
 $ next-browser eval 'document.title'
