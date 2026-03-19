@@ -269,65 +269,46 @@ export function formatReport(report: AnalysisReport): string {
       lines.push("");
     }
 
-    lines.push("## Dynamic holes (suspended in shell)");
-    for (const hole of report.holes) {
-      const name = hole.name ?? "(unnamed)";
-      const src = hole.source ? `${hole.source[0]}:${hole.source[1]}:${hole.source[2]}` : null;
-      lines.push(`  ${name}${src ? ` at ${src}` : ""}`);
-      if (hole.renderedBy.length > 0) {
-        lines.push(`    rendered by: ${hole.renderedBy.map((o) => {
-          const env = o.env ? ` [${o.env}]` : "";
-          const src = o.source ? ` at ${o.source[0]}:${o.source[1]}` : "";
-          return `${o.name}${env}${src}`;
-        }).join(" > ")}`);
-      }
-      if (hole.environments.length > 0) lines.push(`    environments: ${hole.environments.join(", ")}`);
-      if (hole.primaryBlocker) {
-        lines.push(
-          `    primary blocker: ${hole.primaryBlocker.name} ` +
-            `(${hole.primaryBlocker.kind}, actionability ${labelActionability(hole.primaryBlocker.actionability)})`,
-        );
-        if (hole.fallbackSource.path) {
-          lines.push(
-            `    fallback source: ${hole.fallbackSource.path} ` +
-              `(${hole.fallbackSource.confidence} confidence)`,
-          );
+    // Detail section — only shows info NOT already in the Quick Reference table:
+    // owner chains, environment tags, secondary blockers, and stack frames.
+    const holesWithDetail = report.holes.filter(
+      (h) => h.renderedBy.length > 0 || h.environments.length > 0 || h.blockers.length > 1 || h.unknownSuspenders,
+    );
+    if (holesWithDetail.length > 0) {
+      lines.push("## Detail");
+      for (const hole of holesWithDetail) {
+        const name = hole.name ?? "(unnamed)";
+        lines.push(`  ${name}`);
+        if (hole.renderedBy.length > 0) {
+          lines.push(`    rendered by: ${hole.renderedBy.map((o) => {
+            const env = o.env ? ` [${o.env}]` : "";
+            const src = o.source ? ` at ${o.source[0]}:${o.source[1]}` : "";
+            return `${o.name}${env}${src}`;
+          }).join(" > ")}`);
         }
-        if (hole.primaryBlocker.sourceFrame) {
-          lines.push(
-            `      source: ${hole.primaryBlocker.sourceFrame[0] || "(anonymous)"} ` +
-              `${hole.primaryBlocker.sourceFrame[1]}:${hole.primaryBlocker.sourceFrame[2]}`,
-          );
-        }
-        lines.push(`      next step: ${hole.recommendation}`);
-      }
-      if (hole.blockers.length > 0) {
-        lines.push("    blocked by:");
-        for (const blocker of hole.blockers) {
-          const dur = hole.primaryBlocker?.name === blocker.name ? " [primary]" : "";
-          const env = blocker.env ? ` [${blocker.env}]` : "";
-          const owner = blocker.ownerName ? ` initiated by <${blocker.ownerName}>` : "";
-          const awaiter = blocker.awaiterName ? ` awaited in <${blocker.awaiterName}>` : "";
-          lines.push(`      - ${blocker.name}: ${blocker.description || "(no description)"}${env}${dur}${owner}${awaiter}`);
-          if (blocker.ownerFrame) {
-            const [fn, file, line] = blocker.ownerFrame;
-            lines.push(`          owner: ${fn || "(anonymous)"} ${file}:${line}`);
-          }
-          if (blocker.awaiterFrame && !blocker.ownerFrame) {
-            const [fn, file, line] = blocker.awaiterFrame;
-            lines.push(`          awaiter: ${fn || "(anonymous)"} ${file}:${line}`);
-          }
-          if (blocker.ownerFrame && hole.primaryBlocker?.name === blocker.name) {
-            for (const [fn, file, line] of [blocker.ownerFrame].slice(0, 3)) {
-              lines.push(`          at ${fn || "(anonymous)"} ${file}:${line}`);
+        if (hole.environments.length > 0) lines.push(`    environments: ${hole.environments.join(", ")}`);
+        if (hole.blockers.length > 1) {
+          lines.push("    secondary blockers:");
+          for (const blocker of hole.blockers.slice(1)) {
+            const env = blocker.env ? ` [${blocker.env}]` : "";
+            const owner = blocker.ownerName ? ` initiated by <${blocker.ownerName}>` : "";
+            const awaiter = blocker.awaiterName ? ` awaited in <${blocker.awaiterName}>` : "";
+            lines.push(`      - ${blocker.name}: ${blocker.description || "(no description)"}${env}${owner}${awaiter}`);
+            if (blocker.ownerFrame) {
+              const [fn, file, line] = blocker.ownerFrame;
+              lines.push(`          owner: ${fn || "(anonymous)"} ${file}:${line}`);
+            } else if (blocker.awaiterFrame) {
+              const [fn, file, line] = blocker.awaiterFrame;
+              lines.push(`          awaiter: ${fn || "(anonymous)"} ${file}:${line}`);
             }
           }
         }
-      } else if (hole.unknownSuspenders) {
-        lines.push(`    suspenders unknown: ${hole.unknownSuspenders}`);
+        if (hole.unknownSuspenders) {
+          lines.push(`    suspenders unknown: ${hole.unknownSuspenders}`);
+        }
       }
+      lines.push("");
     }
-    lines.push("");
   }
 
   if (report.statics.length > 0) {

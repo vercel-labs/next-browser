@@ -78,8 +78,8 @@ async function run(cmd: Cmd) {
     const data = await browser.reload();
     return { ok: true, data };
   }
-  if (cmd.action === "capture-goto") {
-    const data = await browser.captureGoto(cmd.url as string | undefined);
+  if (cmd.action === "perf") {
+    const data = await browser.perf(cmd.url as string | undefined);
     return { ok: true, data };
   }
   if (cmd.action === "restart") {
