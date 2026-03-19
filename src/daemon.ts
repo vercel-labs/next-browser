@@ -78,8 +78,8 @@ async function run(cmd: Cmd) {
     const data = await browser.reload();
     return { ok: true, data };
   }
-  if (cmd.action === "capture-goto") {
-    const data = await browser.captureGoto(cmd.url as string | undefined);
+  if (cmd.action === "perf") {
+    const data = await browser.perf(cmd.url as string | undefined);
     return { ok: true, data };
   }
   if (cmd.action === "restart") {
@@ -124,10 +124,6 @@ async function run(cmd: Cmd) {
   }
   if (cmd.action === "mcp") {
     const data = await browser.mcp(cmd.tool!, cmd.args);
-    return { ok: true, data };
-  }
-  if (cmd.action === "hydration") {
-    const data = await browser.hydration(cmd.url as string | undefined);
     return { ok: true, data };
   }
   if (cmd.action === "network") {

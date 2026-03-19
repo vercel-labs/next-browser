@@ -59,16 +59,56 @@ if (cmd === "reload") {
   exit(res, res.ok ? `reloaded → ${res.data}` : "");
 }
 
-if (cmd === "capture-goto") {
-  const res = await send("capture-goto", arg ? { url: arg } : {});
+if (cmd === "perf") {
+  const res = await send("perf", arg ? { url: arg } : {});
   if (!res.ok) exit(res, "");
-  const data = res.data as { dir: string; frames: number };
-  exit(
-    res,
-    `${data.frames} frames → ${data.dir}\n` +
-      "\n" +
-      "frame-0000.png is the PPR shell. Remaining frames capture hydration → data.",
-  );
+  const d = res.data as {
+    url: string;
+    ttfb: number | null;
+    lcp: { startTime: number; size: number; element: string | null; url: string | null } | null;
+    cls: { score: number; entries: { value: number; startTime: number }[] };
+    hydration: { startTime: number; endTime: number; duration: number } | null;
+    phases: { label: string; startTime: number; endTime: number; duration: number }[];
+    hydratedComponents: { name: string; startTime: number; endTime: number; duration: number }[];
+  };
+  const lines: string[] = [`# Page Load Profile — ${d.url}`, ""];
+
+  // Core Web Vitals
+  lines.push("## Core Web Vitals");
+  const ttfbStr = d.ttfb != null ? `${d.ttfb}ms` : "—";
+  lines.push(`  TTFB              ${ttfbStr.padStart(10)}`);
+  if (d.lcp) {
+    const lcpLabel = d.lcp.element ? ` (${d.lcp.element}${d.lcp.url ? `: ${d.lcp.url.slice(0, 60)}` : ""})` : "";
+    lines.push(`  LCP               ${String(d.lcp.startTime + "ms").padStart(10)}${lcpLabel}`);
+  } else {
+    lines.push(`  LCP                        —`);
+  }
+  lines.push(`  CLS               ${String(d.cls.score).padStart(10)}`);
+  lines.push("");
+
+  // React Hydration
+  if (d.hydration) {
+    lines.push(`## React Hydration — ${d.hydration.duration}ms (${d.hydration.startTime}ms → ${d.hydration.endTime}ms)`);
+  } else {
+    lines.push("## React Hydration — no data (requires profiling build)");
+  }
+  if (d.phases.length > 0) {
+    for (const p of d.phases) {
+      lines.push(`  ${p.label.padEnd(28)} ${String(p.duration + "ms").padStart(10)}  (${p.startTime} → ${p.endTime})`);
+    }
+    lines.push("");
+  }
+  if (d.hydratedComponents.length > 0) {
+    lines.push(`## Hydrated components (${d.hydratedComponents.length} total, sorted by duration)`);
+    const top = d.hydratedComponents.slice(0, 30);
+    for (const c of top) {
+      lines.push(`  ${c.name.padEnd(40)} ${String(c.duration + "ms").padStart(10)}`);
+    }
+    if (d.hydratedComponents.length > 30) {
+      lines.push(`  ... and ${d.hydratedComponents.length - 30} more`);
+    }
+  }
+  exit(res, lines.join("\n"));
 }
 
 if (cmd === "restart-server") {
@@ -155,45 +195,6 @@ if (cmd === "logs") {
 if (cmd === "action") {
   const res = await send("mcp", { tool: "get_server_action_by_id", args: { actionId: arg } });
   exit(res, res.ok ? json(res.data) : "");
-}
-
-if (cmd === "hydration") {
-  const res = await send("hydration", arg ? { url: arg } : {});
-  if (!res.ok) exit(res, "");
-  const d = res.data as {
-    url: string;
-    hydration: { startTime: number; endTime: number; duration: number } | null;
-    phases: { label: string; startTime: number; endTime: number; duration: number }[];
-    hydratedComponents: { name: string; startTime: number; endTime: number; duration: number }[];
-    totalEntries: number;
-  };
-  const lines: string[] = [`# React Hydration Timing — ${d.url}`];
-  if (d.hydration) {
-    lines.push(
-      `# Hydration render: ${d.hydration.duration}ms (${d.hydration.startTime}ms → ${d.hydration.endTime}ms)`,
-    );
-  } else {
-    lines.push("# No hydration phase detected (requires React profiling build)");
-  }
-  lines.push("");
-  if (d.phases.length > 0) {
-    lines.push("## Scheduler phases");
-    for (const p of d.phases) {
-      lines.push(`  ${p.label.padEnd(24)} ${String(p.duration).padStart(8)}ms  (${p.startTime} → ${p.endTime})`);
-    }
-    lines.push("");
-  }
-  if (d.hydratedComponents.length > 0) {
-    lines.push(`## Hydrated components (${d.hydratedComponents.length} total, sorted by duration)`);
-    const top = d.hydratedComponents.slice(0, 30);
-    for (const c of top) {
-      lines.push(`  ${c.name.padEnd(40)} ${String(c.duration).padStart(8)}ms`);
-    }
-    if (d.hydratedComponents.length > 30) {
-      lines.push(`  ... and ${d.hydratedComponents.length - 30} more`);
-    }
-  }
-  exit(res, lines.join("\n"));
 }
 
 if (cmd === "network") {
@@ -295,7 +296,7 @@ function printUsage() {
       "  push [path]        client-side navigation (interactive picker if no path)\n" +
       "  back               go back in history\n" +
       "  reload             reload current page\n" +
-      "  capture-goto [url]   capture loading sequence (PPR shell → hydration → data)\n" +
+      "  perf [url]         profile page load (CWVs + React hydration timing)\n" +
       "  restart-server     restart the Next.js dev server (clears fs cache)\n" +
       "\n" +
       "  ppr lock           enter PPR instant-navigation mode\n" +
@@ -310,7 +311,6 @@ function printUsage() {
       "\n" +
       "  errors             show build/runtime errors\n" +
       "  logs               show recent dev server log output\n" +
-      "  hydration [url]    measure React hydration timing (requires profiling build)\n" +
       "  network [idx]      list network requests, or inspect one\n" +
       "\n" +
       "  page               show current page segments and router info\n" +

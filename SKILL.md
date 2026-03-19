@@ -130,25 +130,39 @@ $ next-browser ssr-goto http://localhost:3000/dashboard
 
 Use `goto` or `reload` afterward to restore normal behavior.
 
-### `capture-goto [url]`
+### `perf [url]`
 
-Record the full loading sequence of a page as a series of screenshots —
-from the initial PPR shell through hydration to the fully loaded state.
-Useful for seeing exactly how a page progressively reveals content and
-identifying where visual jank or long loading gaps occur.
+Profile a full page load — reloads the current page (or navigates to a
+URL) and collects Core Web Vitals and React hydration timing in one pass.
 
 ```
-$ next-browser capture-goto http://localhost:3024/vercel/~/deployments
-12 frames → /tmp/next-browser-capture-goto-1710000000000
+$ next-browser perf http://localhost:3000/dashboard
+# Page Load Profile — http://localhost:3000/dashboard
 
-frame-0000.png is the PPR shell. Remaining frames capture hydration → data.
+## Core Web Vitals
+  TTFB                   42ms
+  LCP               1205.3ms (img: /_next/image?url=...)
+  CLS                    0.03
+
+## React Hydration — 65.5ms (466.2ms → 531.7ms)
+  Hydrated                         65.5ms  (466.2 → 531.7)
+  Commit                            2.0ms  (531.7 → 533.7)
+  Waiting for Paint                 3.0ms  (533.7 → 536.7)
+  Remaining Effects                 4.1ms  (536.7 → 540.8)
+
+## Hydrated components (42 total, sorted by duration)
+  DeploymentsProvider                       8.3ms
+  NavigationProvider                        5.1ms
+  ...
 ```
 
-Frame 0 is the PPR shell (what the user sees instantly). Remaining frames
-show the page filling in. Read them with the Read tool to see the
-visual progression.
+**TTFB** — server response time (Navigation Timing API).
+**LCP** — when the largest visible element painted, plus what it was.
+**CLS** — cumulative layout shift score (lower is better).
+**Hydration** — React reconciler phases and per-component cost (requires
+React profiling build / `next dev`; production strips `console.timeStamp`).
 
-Without a URL argument, captures the current page (re-navigates to it).
+Without a URL, reloads the current page. With a URL, navigates there first.
 
 ### `restart-server`
 
@@ -197,15 +211,24 @@ unlocked
 # PPR Shell Analysis
 # 131 boundaries: 3 dynamic holes, 128 static
 
-## Dynamic holes (suspended in shell)
-  Next.Metadata
-    rendered by: MetadataWrapper
-  TeamDeploymentsLayout at app/(dashboard)/[teamSlug]/.../layout.tsx:37:9
-    suspenders unknown: thrown Promise (library using throw instead of use())
-  TrackedSuspense at ../../packages/navigation-metrics/.../tracked-suspense.js:6:20
+## Summary
+- Top actionable hole: TrackedSuspense — usePathname (client-hook)
+- Suggested next step: This route segment is suspending on client hooks. Check loading.tsx first...
+- Most common root cause: usePathname (client-hook) affecting 1 boundary
+
+## Quick Reference
+| Boundary                   | Type              | Fallback source | Primary blocker           | Source                        | Suggested next step       |
+| ---                        | ---               | ---             | ---                       | ---                           | ---                       |
+| TrackedSuspense            | component         | unknown         | usePathname (client-hook) | tracked-suspense.js:6         | Push the hook-using cl... |
+| TeamDeploymentsLayout      | route-segment     | unknown         | unknown                   | layout.tsx:37                 | Inspect the nearest us... |
+| Next.Metadata              | component         | unknown         | unknown                   | unknown                       | No primary blocker was... |
+
+## Detail
+  TrackedSuspense
     rendered by: TrackedSuspense > RootLayout > AppLayout
-    blocked by:
-      - usePathname (SSR): /vercel/~/deployments awaited in <FacePopover>
+    environments: SSR
+  TeamDeploymentsLayout
+    suspenders unknown: thrown Promise (library using throw instead of use())
 
 ## Static (pre-rendered in shell)
   GeistProvider at .../geist-provider.tsx:80:9
@@ -213,8 +236,10 @@ unlocked
   ...
 ```
 
-Each hole shows: boundary name + source, `rendered by:` ownership chain,
-`blocked by:` the dynamic calls (hooks, server APIs, scripts, cache, etc.)
+The **Quick Reference** table is the main overview — boundary, blocker,
+source, and suggested fix at a glance. The **Detail** section only appears
+for holes that have extra info (owner chains, environments, secondary
+blockers) not already in the table.
 
 **`errors` doesn't report while locked.** If the shell looks wrong (empty,
 bailed to CSR), unlock and `goto` the page normally, then run `errors`.
@@ -486,8 +511,9 @@ monolithic loading state, not the page.
 A meaningful shell is the real component tree with small, local fallbacks
 where data is genuinely pending. Getting there means the composition layer
 — the layouts and wrappers between those leaf boundaries — can't itself
-suspend. `ppr unlock` names what suspended (`blocked by:`) and where it
-sits (`rendered by:`). A suspend high in the tree is what collapses
+suspend. `ppr unlock`'s Quick Reference table names the primary blocker
+and source for each hole; the Detail section adds owner chains and
+secondary blockers. A suspend high in the tree is what collapses
 everything beneath it into one fallback.
 
 Work it top-down. For the component that's suspending: can the dynamic

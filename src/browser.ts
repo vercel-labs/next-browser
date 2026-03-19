@@ -11,7 +11,7 @@
  * Module-level state: one browser context, one page, one PPR lock.
  */
 
-import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { readFileSync, mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { chromium, type BrowserContext, type Page } from "playwright";
@@ -158,7 +158,7 @@ export async function unlock() {
   // For goto case: the page auto-reloads. Wait for the new page to load
   // and React/DevTools to reconnect before trying to snapshot boundaries.
   await page.waitForLoadState("load").catch(() => {});
-  await new Promise((r) => setTimeout(r, 2000));
+  await waitForDevToolsReconnect(page);
 
   // Wait for all boundaries to resolve after unlock.
   await waitForSuspenseToSettle(page);
@@ -230,6 +230,25 @@ async function waitForSuspenseToSettle(p: Page) {
   }
 }
 
+/**
+ * Wait for React DevTools to reconnect after a page reload.
+ *
+ * After the goto case unlocks, the page auto-reloads and DevTools loses its
+ * renderer connection. Poll until the DevTools hook reports at least one
+ * renderer, or bail after 5s. This replaces the old hardcoded 2s sleep.
+ */
+async function waitForDevToolsReconnect(p: Page) {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const connected = await p.evaluate(() => {
+      const hook = (window as any).__REACT_DEVTOOLS_GLOBAL_HOOK__;
+      return hook?.rendererInterfaces?.size > 0;
+    }).catch(() => false);
+    if (connected) return;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+}
+
 // ── Navigation ───────────────────────────────────────────────────────────────
 
 /** Hard reload the current page. Returns the URL after reload. */
@@ -240,69 +259,137 @@ export async function reload() {
 }
 
 /**
- * Reload the page while capturing screenshots every ~150ms.
- * Stops when: load has fired AND no new layout-shift entries for 2s.
- * Hard timeout at 30s. Returns the list of screenshot paths plus any
- * LayoutShift entries observed during the reload.
- */
-/**
- * Lock PPR → goto → screenshot the shell → unlock → screenshot frames
- * until the page settles. Just PNGs in a directory — the AI reads them.
+ * Profile a page load: reload (or navigate to a URL) and collect Core Web
+ * Vitals (LCP, CLS, TTFB) plus React hydration timing.
  *
- * Frame 0 is always the PPR shell. Remaining frames capture the transition
- * through hydration and data loading. Stops after 3s of no visual change.
+ * CWVs come from PerformanceObserver and Navigation Timing API.
+ * Hydration timing comes from console.timeStamp entries emitted by React's
+ * profiling build (see the addInitScript interceptor in launch()).
+ *
+ * Returns structured data that the CLI formats into a readable report.
  */
-export async function captureGoto(url?: string) {
+export async function perf(url?: string) {
   if (!page) throw new Error("browser not open");
   const targetUrl = url || page.url();
-  const dir = join(tmpdir(), `next-browser-capture-goto-${Date.now()}`);
-  mkdirSync(dir, { recursive: true });
 
-  let frameIdx = 0;
+  // Install CWV observers before navigation so they capture everything.
+  await page.evaluate(() => {
+    (window as any).__NEXT_BROWSER_REACT_TIMING__ = [];
+    const cwv: any = { lcp: null, cls: 0, clsEntries: [] };
+    (window as any).__NEXT_BROWSER_CWV__ = cwv;
 
-  async function snap() {
-    await hideDevOverlay();
-    const path = join(dir, `frame-${String(frameIdx).padStart(4, "0")}.png`);
-    const buf = await page!.screenshot({ path }).catch(() => null);
-    frameIdx++;
-    return buf;
+    // Largest Contentful Paint
+    new PerformanceObserver((list) => {
+      const entries = list.getEntries();
+      if (entries.length > 0) {
+        const last = entries[entries.length - 1] as any;
+        cwv.lcp = {
+          startTime: Math.round(last.startTime * 100) / 100,
+          size: last.size,
+          element: last.element?.tagName?.toLowerCase() ?? null,
+          url: last.url || null,
+        };
+      }
+    }).observe({ type: "largest-contentful-paint", buffered: true });
+
+    // Cumulative Layout Shift
+    new PerformanceObserver((list) => {
+      for (const entry of list.getEntries() as any[]) {
+        if (!entry.hadRecentInput) {
+          cwv.cls += entry.value;
+          cwv.clsEntries.push({
+            value: Math.round(entry.value * 10000) / 10000,
+            startTime: Math.round(entry.startTime * 100) / 100,
+          });
+        }
+      }
+    }).observe({ type: "layout-shift", buffered: true });
+  });
+
+  // Navigate or reload to trigger a full page load.
+  if (url) {
+    await page.goto(targetUrl, { waitUntil: "load" });
+  } else {
+    await page.reload({ waitUntil: "load" });
   }
 
-  // PPR shell: lock suppresses hydration.
-  await lock();
-  await page.goto(targetUrl, { waitUntil: "load" }).catch(() => {});
-  await new Promise((r) => setTimeout(r, 300));
-  await snap();
+  // Wait for passive effects, late paints, and layout shifts to flush.
+  await new Promise((r) => setTimeout(r, 3000));
 
-  // Unlock → page reloads, hydrates, loads data.
-  const unlockDone = unlock();
-  await new Promise((r) => setTimeout(r, 200));
+  // Collect all metrics from the page.
+  const metrics = await page.evaluate(() => {
+    const cwv = (window as any).__NEXT_BROWSER_CWV__ ?? {};
+    const timing = (window as any).__NEXT_BROWSER_REACT_TIMING__ ?? [];
 
-  let lastChangeTime = Date.now();
-  let prevHash = "";
-  const SETTLE_MS = 3_000;
-  const HARD_TIMEOUT = 30_000;
-  const start = Date.now();
+    // TTFB from Navigation Timing API.
+    const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+    const ttfb = nav
+      ? Math.round((nav.responseStart - nav.requestStart) * 100) / 100
+      : null;
 
-  while (true) {
-    const buf = await snap();
+    return { cwv, timing, ttfb };
+  }) as {
+    cwv: {
+      lcp: { startTime: number; size: number; element: string | null; url: string | null } | null;
+      cls: number;
+      clsEntries: { value: number; startTime: number }[];
+    };
+    timing: Array<{
+      label: string;
+      startTime: number;
+      endTime: number;
+      track: string;
+      trackGroup: string;
+      color: string;
+    }>;
+    ttfb: number | null;
+  };
 
-    let hash = "";
-    if (buf) {
-      let h = 0;
-      for (let i = 0; i < buf.length; i += 200) h = ((h << 5) - h + buf[i]) | 0;
-      hash = String(h);
-    }
-    if (hash !== prevHash) { lastChangeTime = Date.now(); prevHash = hash; }
+  // Process React hydration timing.
+  const phases = metrics.timing.filter((e) => e.trackGroup === "Scheduler ⚛" && e.endTime > e.startTime);
+  const components = metrics.timing.filter((e) => e.track === "Components ⚛" && e.endTime > e.startTime);
+  const hydrationPhases = phases.filter((e) => e.label === "Hydrated");
+  const hydratedComponents = components.filter((e) => e.color?.startsWith("tertiary"));
 
-    if (Date.now() - start > HARD_TIMEOUT) break;
-    if (lastChangeTime > 0 && Date.now() - lastChangeTime > SETTLE_MS) break;
-
-    await new Promise((r) => setTimeout(r, 150));
+  let hydrationStart = Infinity;
+  let hydrationEnd = 0;
+  for (const p of hydrationPhases) {
+    if (p.startTime < hydrationStart) hydrationStart = p.startTime;
+    if (p.endTime > hydrationEnd) hydrationEnd = p.endTime;
   }
 
-  await unlockDone.catch(() => {});
-  return { dir, frames: frameIdx };
+  const round = (n: number) => Math.round(n * 100) / 100;
+
+  return {
+    url: targetUrl,
+    ttfb: metrics.ttfb,
+    lcp: metrics.cwv.lcp,
+    cls: {
+      score: round(metrics.cwv.cls),
+      entries: metrics.cwv.clsEntries,
+    },
+    hydration: hydrationPhases.length > 0
+      ? {
+          startTime: round(hydrationStart),
+          endTime: round(hydrationEnd),
+          duration: round(hydrationEnd - hydrationStart),
+        }
+      : null,
+    phases: phases.map((p) => ({
+      label: p.label,
+      startTime: round(p.startTime),
+      endTime: round(p.endTime),
+      duration: round(p.endTime - p.startTime),
+    })),
+    hydratedComponents: hydratedComponents
+      .map((c) => ({
+        name: c.label,
+        startTime: round(c.startTime),
+        endTime: round(c.endTime),
+        duration: round(c.endTime - c.startTime),
+      }))
+      .sort((a, b) => b.duration - a.duration),
+  };
 }
 
 /**
@@ -479,96 +566,6 @@ async function hideDevOverlay() {
   await page.evaluate(() => {
     document.querySelectorAll("[data-nextjs-dev-overlay]").forEach((el) => el.remove());
   }).catch(() => {});
-}
-
-/**
- * Navigate to a URL and collect React hydration timing from console.timeStamp
- * entries emitted by React's profiling build. React calls
- * console.timeStamp(label, startTime, endTime, track, trackGroup, color)
- * where startTime/endTime are performance.now() values from the reconciler.
- *
- * The "Hydrated" label marks the render phase of hydration (reconciling
- * server-rendered HTML). Components hydrated in that pass use tertiary colors
- * on the "Components ⚛" track. Commit, layout effects, and passive effects
- * are logged as separate phases.
- *
- * Requires a React profiling build (enableProfilerTimer = true).
- * Production builds strip console.timeStamp calls — use next dev or
- * a profiling build to get data.
- */
-export async function hydration(url?: string) {
-  if (!page) throw new Error("browser not open");
-  const targetUrl = url || page.url();
-
-  // Clear any previous timing entries.
-  await page.evaluate(() => {
-    (window as any).__NEXT_BROWSER_REACT_TIMING__ = [];
-  });
-
-  // Full page navigation — triggers hydration.
-  await page.goto(targetUrl, { waitUntil: "load" });
-
-  // Wait for passive effects and late commits to flush.
-  await new Promise((r) => setTimeout(r, 3000));
-
-  // Collect captured timing entries.
-  const entries = await page.evaluate(() => {
-    return (window as any).__NEXT_BROWSER_REACT_TIMING__ ?? [];
-  }) as Array<{
-    label: string;
-    startTime: number;
-    endTime: number;
-    track: string;
-    trackGroup: string;
-    color: string;
-  }>;
-
-  // Separate scheduler-level phases from component-level entries.
-  // Filter out zero-duration track registration entries.
-  const phases = entries.filter((e) => e.trackGroup === "Scheduler ⚛" && e.endTime > e.startTime);
-  const components = entries.filter((e) => e.track === "Components ⚛" && e.endTime > e.startTime);
-
-  // Find hydration phase(s) specifically.
-  const hydrationPhases = phases.filter((e) => e.label === "Hydrated");
-
-  // Hydrated components use tertiary colors in React's performance track.
-  const hydratedComponents = components.filter((e) =>
-    e.color?.startsWith("tertiary"),
-  );
-
-  // Compute overall hydration render window.
-  let hydrationStart = Infinity;
-  let hydrationEnd = 0;
-  for (const p of hydrationPhases) {
-    if (p.startTime < hydrationStart) hydrationStart = p.startTime;
-    if (p.endTime > hydrationEnd) hydrationEnd = p.endTime;
-  }
-
-  return {
-    url: targetUrl,
-    hydration: hydrationPhases.length > 0
-      ? {
-          startTime: Math.round(hydrationStart * 100) / 100,
-          endTime: Math.round(hydrationEnd * 100) / 100,
-          duration: Math.round((hydrationEnd - hydrationStart) * 100) / 100,
-        }
-      : null,
-    phases: phases.map((p) => ({
-      label: p.label,
-      startTime: Math.round(p.startTime * 100) / 100,
-      endTime: Math.round(p.endTime * 100) / 100,
-      duration: Math.round((p.endTime - p.startTime) * 100) / 100,
-    })),
-    hydratedComponents: hydratedComponents
-      .map((c) => ({
-        name: c.label,
-        startTime: Math.round(c.startTime * 100) / 100,
-        endTime: Math.round(c.endTime * 100) / 100,
-        duration: Math.round((c.endTime - c.startTime) * 100) / 100,
-      }))
-      .sort((a, b) => b.duration - a.duration),
-    totalEntries: entries.length,
-  };
 }
 
 /** Evaluate arbitrary JavaScript in the page context. */
