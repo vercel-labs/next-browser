@@ -568,9 +568,185 @@ async function hideDevOverlay() {
   }).catch(() => {});
 }
 
-/** Evaluate arbitrary JavaScript in the page context. */
-export async function evaluate(script: string) {
+// ── Ref map for interactive elements ──────────────────────────────────
+
+const INTERACTIVE_ROLES = new Set([
+  "button", "link", "textbox", "checkbox", "radio", "combobox", "listbox",
+  "menuitem", "menuitemcheckbox", "menuitemradio", "option", "searchbox",
+  "slider", "spinbutton", "switch", "tab", "treeitem",
+]);
+
+type Ref = { role: string; name: string; nth?: number };
+let refMap: Ref[] = [];
+
+type CDPAXNode = {
+  nodeId: string;
+  role: { type: string; value: string };
+  name?: { type: string; value: string };
+  properties?: { name: string; value: { type: string; value: unknown } }[];
+  childIds?: string[];
+  backendDOMNodeId?: number;
+};
+
+/**
+ * Snapshot the accessibility tree via CDP and return a text representation
+ * with [ref=e0], [ref=e1] … markers on interactive elements.
+ * Stores a ref map so that `click("e3")` can resolve back to role+name.
+ */
+export async function snapshot() {
   if (!page) throw new Error("browser not open");
+
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    const { nodes } = (await cdp.send("Accessibility.getFullAXTree" as never)) as {
+      nodes: CDPAXNode[];
+    };
+
+    // Index nodes by ID
+    const byId = new Map<string, CDPAXNode>();
+    for (const n of nodes) byId.set(n.nodeId, n);
+
+    refMap = [];
+    const roleNameCount = new Map<string, number>();
+    const lines: string[] = [];
+
+    function walk(node: CDPAXNode, depth: number) {
+      const role = node.role?.value || "unknown";
+      const name = (node.name?.value || "").trim().slice(0, 80);
+      const isInteractive = INTERACTIVE_ROLES.has(role);
+
+      // Read properties into a map
+      const propMap = new Map<string, unknown>();
+      for (const p of node.properties || []) propMap.set(p.name, p.value.value);
+
+      const ignored = propMap.get("hidden") === true;
+      if (ignored) return;
+
+      // Always skip leaf text nodes — parent already carries the text
+      if (role === "InlineTextBox" || role === "StaticText" || role === "LineBreak") return;
+
+      // Skip generic/none wrappers with no name — just recurse children
+      const SKIP_ROLES = new Set(["none", "generic", "GenericContainer"]);
+      if (SKIP_ROLES.has(role) && !name) {
+        for (const id of node.childIds || []) {
+          const child = byId.get(id);
+          if (child) walk(child, depth);
+        }
+        return;
+      }
+
+      // Skip root WebArea — just recurse
+      if (role === "WebArea" || role === "RootWebArea") {
+        for (const id of node.childIds || []) {
+          const child = byId.get(id);
+          if (child) walk(child, depth);
+        }
+        return;
+      }
+
+      const indent = "  ".repeat(depth);
+      let line = `${indent}- ${role}`;
+      if (name) line += ` "${name}"`;
+
+      const disabled = propMap.get("disabled") === true;
+
+      if (isInteractive && !disabled) {
+        const key = `${role}::${name}`;
+        const count = roleNameCount.get(key) || 0;
+        roleNameCount.set(key, count + 1);
+
+        const ref: Ref = { role, name };
+        if (count > 0) ref.nth = count;
+        const idx = refMap.length;
+        refMap.push(ref);
+        line += ` [ref=e${idx}]`;
+      }
+
+      // Append state properties
+      const tags: string[] = [];
+      if (propMap.get("checked") === "true" || propMap.get("checked") === true) tags.push("checked");
+      if (propMap.get("checked") === "mixed") tags.push("mixed");
+      if (disabled) tags.push("disabled");
+      if (propMap.get("expanded") === true) tags.push("expanded");
+      if (propMap.get("expanded") === false) tags.push("collapsed");
+      if (propMap.get("selected") === true) tags.push("selected");
+      if (tags.length) line += ` (${tags.join(", ")})`;
+
+      lines.push(line);
+      for (const id of node.childIds || []) {
+        const child = byId.get(id);
+        if (child) walk(child, depth + 1);
+      }
+    }
+
+    // Start from the root (first node)
+    if (nodes.length) walk(nodes[0], 0);
+    return lines.join("\n");
+  } finally {
+    await cdp.detach();
+  }
+}
+
+/** Resolve a ref (e.g. "e3") or selector string to a Playwright Locator. */
+function resolveLocator(selectorOrRef: string) {
+  if (!page) throw new Error("browser not open");
+
+  const refMatch = selectorOrRef.match(/^e(\d+)$/);
+  if (refMatch) {
+    const idx = Number(refMatch[1]);
+    const ref = refMap[idx];
+    if (!ref) throw new Error(`ref e${idx} not found — run snapshot first`);
+    const locator = page.getByRole(ref.role as Parameters<Page["getByRole"]>[0], {
+      name: ref.name,
+      exact: true,
+    });
+    return ref.nth != null ? locator.nth(ref.nth) : locator;
+  }
+
+  const hasPrefix = /^(css=|text=|role=|#|\[|\.|\w+\s*>)/.test(selectorOrRef);
+  return page.locator(hasPrefix ? selectorOrRef : `text=${selectorOrRef}`);
+}
+
+/**
+ * Click an element using real pointer events.
+ * Accepts: "e3" (ref from snapshot), plain text, or Playwright selectors.
+ */
+export async function click(selectorOrRef: string) {
+  if (!page) throw new Error("browser not open");
+  await resolveLocator(selectorOrRef).click();
+}
+
+/**
+ * Fill a text input/textarea. Clears existing value, then types the new one.
+ * Accepts: "e3" (ref from snapshot), or a selector.
+ */
+export async function fill(selectorOrRef: string, value: string) {
+  if (!page) throw new Error("browser not open");
+  await resolveLocator(selectorOrRef).fill(value);
+}
+
+/**
+ * Evaluate arbitrary JavaScript in the page context.
+ * If ref is provided (e.g. "e3"), the script receives the DOM element as its
+ * first argument: `next-browser eval e3 'el => el.textContent'`
+ */
+export async function evaluate(script: string, ref?: string) {
+  if (!page) throw new Error("browser not open");
+  if (ref) {
+    const locator = resolveLocator(ref);
+    const handle = await locator.elementHandle();
+    if (!handle) throw new Error(`ref ${ref} not found in DOM`);
+    // The script should be an arrow/function that receives the element.
+    // We wrap it so page.evaluate can pass the element handle as an arg.
+    return page.evaluate(
+      ([fn, el]) => {
+        // eslint-disable-next-line no-eval
+        const f = (0, eval)(fn);
+        return f(el);
+      },
+      [script, handle] as const,
+    );
+  }
   return page.evaluate(script);
 }
 
@@ -660,9 +836,12 @@ async function launch() {
 
   const ctx = await chromium.launchPersistentContext(dir, {
     headless,
-    viewport: { width: 1440, height: 900 },
+    viewport: null,
     // --no-sandbox is required when Chrome runs as root (common in containers/cloud sandboxes)
-    args: headless ? ["--no-sandbox"] : [],
+    args: [
+      ...(headless ? ["--no-sandbox"] : []),
+      "--window-size=1440,900",
+    ],
   });
   await ctx.addInitScript(installHook);
 

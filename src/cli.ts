@@ -154,28 +154,62 @@ if (cmd === "screenshot") {
   exit(res, res.ok ? String(res.data) : "");
 }
 
+if (cmd === "snapshot") {
+  const res = await send("snapshot");
+  exit(res, res.ok ? json(res.data) : "");
+}
+
+if (cmd === "click") {
+  if (!arg) {
+    console.error("usage: next-browser click <ref|text|selector>");
+    process.exit(1);
+  }
+  const res = await send("click", { selector: arg });
+  exit(res, "clicked");
+}
+
+if (cmd === "fill") {
+  const value = args[2];
+  if (!arg || value === undefined) {
+    console.error("usage: next-browser fill <ref|selector> <value>");
+    process.exit(1);
+  }
+  const res = await send("fill", { selector: arg, value });
+  exit(res, "filled");
+}
+
 if (cmd === "eval") {
+  // Check if first arg is a ref (e.g. "e3") — if so, second arg is the script
+  let ref: string | undefined;
+  let scriptArg = arg;
+  let fileArgIdx = 2;
+  if (arg && /^e\d+$/.test(arg)) {
+    ref = arg;
+    scriptArg = args[2];
+    fileArgIdx = 3;
+  }
+
   let script: string | undefined;
-  if (arg === "--file" || arg === "-f") {
-    const filePath = args[2];
+  if (scriptArg === "--file" || scriptArg === "-f") {
+    const filePath = args[fileArgIdx];
     if (!filePath) {
-      console.error("usage: next-browser eval --file <path>");
+      console.error("usage: next-browser eval [ref] --file <path>");
       process.exit(1);
     }
     script = readFileSync(filePath, "utf-8");
-  } else if (arg === "-") {
+  } else if (scriptArg === "-") {
     // Read from stdin
     const chunks: Buffer[] = [];
     for await (const chunk of process.stdin) chunks.push(chunk);
     script = Buffer.concat(chunks).toString("utf-8");
   } else {
-    script = arg;
+    script = scriptArg;
   }
   if (!script) {
-    console.error("usage: next-browser eval <script>\n       next-browser eval --file <path>\n       echo 'script' | next-browser eval -");
+    console.error("usage: next-browser eval [ref] <script>\n       next-browser eval [ref] --file <path>\n       echo 'script' | next-browser eval -");
     process.exit(1);
   }
-  const res = await send("eval", { script });
+  const res = await send("eval", { script, ...(ref ? { selector: ref } : {}) });
   exit(res, res.ok ? json(res.data) : "");
 }
 
@@ -323,9 +357,12 @@ function printUsage() {
       "\n" +
       "  viewport [WxH]     show or set viewport size (e.g. 1280x720)\n" +
       "  screenshot         save full-page screenshot to tmp file\n" +
-      "  eval <script>      evaluate JS in page context\n" +
-      "  eval --file <path>  evaluate JS from a file\n" +
-      "  eval -              evaluate JS from stdin\n" +
+      "  snapshot           accessibility tree with interactive refs\n" +
+      "  click <ref|sel>    click an element (real pointer events)\n" +
+      "  fill <ref|sel> <v> fill a text input\n" +
+      "  eval [ref] <script> evaluate JS in page context\n" +
+      "  eval --file <path> evaluate JS from a file\n" +
+      "  eval -             evaluate JS from stdin\n" +
       "\n" +
       "  errors             show build/runtime errors\n" +
       "  logs               show recent dev server log output\n" +
