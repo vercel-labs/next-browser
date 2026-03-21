@@ -58,6 +58,14 @@ command errors without an open session.
 
 ---
 
+## Headless mode
+
+By default the browser opens headed (visible window). For CI or cloud
+environments with no display, set `NEXT_BROWSER_HEADLESS=1` to run
+headless.
+
+---
+
 ## Keep the user in the loop visually
 
 During debug sessions, use `preview` liberally so the user can see what
