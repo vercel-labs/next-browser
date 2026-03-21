@@ -57,6 +57,9 @@ type Cmd = {
   domain?: string;
   width?: number | null;
   height?: number | null;
+  fullPage?: boolean;
+  caption?: string;
+  clear?: boolean;
 };
 
 async function run(cmd: Cmd) {
@@ -88,8 +91,12 @@ async function run(cmd: Cmd) {
     const data = await browser.restart();
     return { ok: true, data };
   }
+  if (cmd.action === "preview") {
+    const data = await browser.preview(cmd.caption, cmd.clear);
+    return { ok: true, data };
+  }
   if (cmd.action === "screenshot") {
-    const data = await browser.screenshot();
+    const data = await browser.screenshot({ fullPage: cmd.fullPage });
     return { ok: true, data };
   }
   if (cmd.action === "links") {

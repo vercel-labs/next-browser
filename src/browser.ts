@@ -11,10 +11,10 @@
  * Module-level state: one browser context, one page, one PPR lock.
  */
 
-import { readFileSync, mkdirSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { chromium, type BrowserContext, type Page } from "playwright";
+import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { instant } from "@next/playwright";
 import * as componentTree from "./tree.ts";
 import * as suspenseTree from "./suspense.ts";
@@ -38,6 +38,10 @@ let page: Page | null = null;
 let profileDirPath: string | null = null;
 let initialOrigin: string | null = null;
 let ssrLocked = false;
+
+let previewBrowser: Browser | BrowserContext | null = null;
+let previewPage: Page | null = null;
+let previewImages: { caption?: string; imgData: string; timestamp: string }[] = [];
 
 /** Install or remove the script-blocking route handler based on ssrLocked. */
 async function syncSsrRoutes() {
@@ -86,6 +90,10 @@ export async function cookies(cookies: { name: string; value: string }[], domain
 
 /** Close the browser and reset all state. */
 export async function close() {
+  await previewBrowser?.close().catch(() => {});
+  previewBrowser = null;
+  previewPage = null;
+  previewImages = [];
   await context?.close();
   context = null;
   page = null;
@@ -564,14 +572,80 @@ async function formatSource([file, line, col]: [string, number, number]) {
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 
-/** Viewport screenshot saved to a temp file. Returns the file path. */
-export async function screenshot() {
+/** Take a screenshot and display it in a separate headed Chromium window.
+ *  Images accumulate across calls — use `clear` to reset. */
+export async function preview(caption?: string, clear?: boolean) {
+  if (!page) throw new Error("browser not open");
+  if (clear) previewImages = [];
+
+  const path = await screenshot();
+  const imgData = readFileSync(path).toString("base64");
+  const timestamp = new Date().toLocaleTimeString();
+  previewImages.unshift({ caption, imgData, timestamp });
+
+  const imagesHtml = previewImages
+    .map(
+      (img) =>
+        `<div style="padding:4px 12px;display:flex;align-items:baseline;gap:8px">` +
+        (img.caption
+          ? `<span style="font-size:14px">${escapeHtml(img.caption)}</span>`
+          : "") +
+        `<span style="font-size:11px;opacity:0.5">${escapeHtml(img.timestamp)}</span>` +
+        `</div>` +
+        `<img src="data:image/png;base64,${img.imgData}" style="display:block;max-width:100%">`,
+    )
+    .join(`<hr style="border:none;border-top:1px solid #333;margin:12px 0">`);
+
+  const html =
+    `<html><head><title>next-browser preview</title></head>` +
+    `<body style="margin:0;background:#111;color:#fff;font-family:system-ui">` +
+    `<div style="padding:8px 12px;font-size:11px;opacity:0.5;text-transform:uppercase;letter-spacing:0.05em">next-browser preview</div>` +
+    `${imagesHtml}` +
+    `</body></html>`;
+  const htmlPath = path.replace(/\.png$/, ".html");
+  writeFileSync(htmlPath, html);
+  const target = `file://${htmlPath}`;
+
+  // Reuse existing preview window, or launch a new one.
+  if (previewPage && !previewPage.isClosed()) {
+    try {
+      await previewPage.goto(target);
+      await previewPage.bringToFront();
+      return path;
+    } catch {
+      // Window was closed by user — fall through to launch a new one.
+      await previewBrowser?.close().catch(() => {});
+    }
+  }
+
+  const { mkdtempSync } = await import("node:fs");
+  const { join } = await import("node:path");
+  const { tmpdir } = await import("node:os");
+  const userDataDir = mkdtempSync(join(tmpdir(), "nb-preview-"));
+  const ctx = await chromium.launchPersistentContext(userDataDir, {
+    headless: false,
+    args: [`--app=${target}`, "--window-size=820,640"],
+    viewport: null,
+  });
+  previewBrowser = ctx;
+  previewPage = ctx.pages()[0] ?? (await ctx.waitForEvent("page"));
+  await previewPage.waitForLoadState();
+  await previewPage.bringToFront();
+  return path;
+}
+
+function escapeHtml(s: string) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Screenshot saved to a temp file. Returns the file path. */
+export async function screenshot(opts?: { fullPage?: boolean }) {
   if (!page) throw new Error("browser not open");
   await hideDevOverlay();
   const { join } = await import("node:path");
   const { tmpdir } = await import("node:os");
   const path = join(tmpdir(), `next-browser-${Date.now()}.png`);
-  await page.screenshot({ path });
+  await page.screenshot({ path, fullPage: opts?.fullPage });
   return path;
 }
 

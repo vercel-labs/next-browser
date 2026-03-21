@@ -58,6 +58,24 @@ command errors without an open session.
 
 ---
 
+## Keep the user in the loop visually
+
+During debug sessions, use `preview` liberally so the user can see what
+you see. Good moments to preview:
+
+- Right after opening a page or navigating, so the user confirms you're
+  on the right page.
+- After making a code change and reloading — show the before/after.
+- When inspecting the PPR shell (locked state) — the user can judge
+  shell quality faster than reading a tree dump.
+- When something looks wrong — show it, don't just describe it.
+
+Use captions to annotate what the screenshot represents (e.g.
+`preview "PPR shell — locked"`, `preview "After fix"`). This makes
+the preview window self-documenting as you iterate.
+
+---
+
 ## Commands
 
 ### `open <url> [--cookies-json <file>]`
@@ -321,14 +339,48 @@ command to change dimensions.
 
 ---
 
+### `preview [caption] [--clear]`
+
+Take a screenshot and pop it open in a separate headed Chromium window.
+**Images accumulate** — each call appends a new captioned screenshot
+below the previous ones, separated by a divider. Use `--clear` to reset
+and start fresh. The preview window is closed automatically when you run
+`close`.
+
+```
+$ next-browser preview "Before fix"
+preview → /var/folders/.../next-browser-1772770369495.png
+
+$ next-browser preview "After fix"
+preview → /var/folders/.../next-browser-1772770369496.png
+# Window now shows both images stacked vertically
+
+$ next-browser preview --clear "Fresh start"
+preview → /var/folders/.../next-browser-1772770369497.png
+# Window reset — only shows this image
+```
+
 ### `screenshot`
 
-Full-page PNG to a temp file. Returns the path. Read with the Read tool.
+Viewport PNG to a temp file. Returns the path. Read with the Read tool.
+Use `--full-page` to capture the entire scrollable page.
 
 ```
 $ next-browser screenshot
 /var/folders/.../next-browser-1772770369495.png
+
+$ next-browser screenshot --full-page
+/var/folders/.../next-browser-1772770369496.png
 ```
+
+**Always follow `screenshot` with `preview` + a caption** so the user
+can see what you see. `screenshot` alone only saves a file — the user
+has no visibility into what you captured unless you `preview` it.
+
+**For before/after comparison**, call `preview "Before"` on the original
+state, then make changes and call `preview "After"`. Both images stay
+visible in the preview window. Use `--clear` when starting a new
+comparison to reset accumulated images.
 
 Don't narrate what the screenshot shows — the user can see the browser.
 State your conclusion or next action, not a description of the page.
@@ -385,6 +437,10 @@ Three ways to target:
 **Recommended workflow:** run `snapshot` first, then `click eN`.
 Refs are the most reliable — they resolve via ARIA role+name, so they
 work even when elements have no stable CSS selector.
+
+**Clicking navigation links can timeout.** `click` on a Next.js `<Link>`
+waits for the navigation to settle, which can exceed the command timeout.
+If `click` hangs on a nav link, cancel it and use `goto <url>` instead.
 
 ```
 $ next-browser snapshot

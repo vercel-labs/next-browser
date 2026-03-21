@@ -154,8 +154,16 @@ if (cmd === "back") {
   exit(res, "back");
 }
 
+if (cmd === "preview") {
+  const clear = args.includes("--clear");
+  const caption = args.filter((a) => a !== "--clear").slice(1).join(" ") || undefined;
+  const res = await send("preview", { caption, clear });
+  exit(res, res.ok ? `preview → ${res.data}` : "");
+}
+
 if (cmd === "screenshot") {
-  const res = await send("screenshot");
+  const fullPage = args.includes("--full-page");
+  const res = await send("screenshot", { fullPage });
   exit(res, res.ok ? String(res.data) : "");
 }
 
@@ -362,7 +370,8 @@ function printUsage() {
       "  tree <id>          inspect component (props, hooks, state, source)\n" +
       "\n" +
       "  viewport [WxH]     show or set viewport size (e.g. 1280x720)\n" +
-      "  screenshot         save full-page screenshot to tmp file\n" +
+      "  preview [caption] [--clear]  screenshot + open in viewer (accumulates)\n" +
+      "  screenshot [--full-page]  save screenshot to tmp file\n" +
       "  snapshot           accessibility tree with interactive refs\n" +
       "  click <ref|sel>    click an element (real pointer events)\n" +
       "  fill <ref|sel> <v> fill a text input\n" +

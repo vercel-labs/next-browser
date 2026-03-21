@@ -63,7 +63,8 @@ Requires Node >= 20.
 | `errors`          | Build and runtime errors for the current page                 |
 | `logs`            | Recent dev server log output                                  |
 | `network [idx]`   | List network requests, or inspect one (headers, body)         |
-| `screenshot`      | Full-page PNG to a temp file                                  |
+| `preview [caption]` | Screenshot + open in viewer window (accumulates across calls) |
+| `screenshot`      | Viewport PNG to a temp file (`--full-page` for entire page)   |
 
 ### Interaction
 
@@ -139,8 +140,8 @@ $ next-browser perf http://localhost:3000/dashboard
 $ next-browser ppr lock
 locked
 $ next-browser goto http://localhost:3000/dashboard
-$ next-browser screenshot
-/var/folders/.../next-browser-screenshot.png
+$ next-browser preview "PPR shell — locked"
+preview → /var/folders/.../next-browser-screenshot.png
 $ next-browser ppr unlock
 # PPR Shell Analysis — 131 boundaries: 3 dynamic holes, 128 static
 
