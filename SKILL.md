@@ -570,6 +570,36 @@ $ next-browser logs
 {"timestamp":"00:01:55.382","source":"Browser","level":"WARN","message":"navigation-metrics: content visible was already recorded..."}
 ```
 
+### `browser-logs`
+
+Browser-side console output (`console.log`, `console.warn`, `console.error`,
+`console.info`). Captured directly from the page — works with both dev and
+production builds.
+
+```
+$ next-browser browser-logs
+[LOG  ] Initializing app
+[WARN ] Deprecation: use fetchV2 instead
+[ERROR] Failed to load resource: 404
+[INFO ] render complete in 42ms
+```
+
+Up to 500 entries are kept; oldest are dropped when the buffer is full.
+Entries accumulate across navigations within the same browser session.
+If output exceeds 4 000 chars it is written to a temp file and the path
+is printed instead.
+
+**When to use which:**
+
+| Command        | Source                           | Requires dev server |
+|----------------|----------------------------------|---------------------|
+| `logs`         | Next.js dev server stdout        | Yes                 |
+| `errors`       | Build errors + `console.error`   | Yes                 |
+| `browser-logs` | All browser console output       | No                  |
+
+For dev server diagnostics, prefer `logs` and `errors`. Use `browser-logs`
+when you need general console output or are running a production build.
+
 ---
 
 ### `network`

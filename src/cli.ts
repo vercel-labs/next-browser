@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { send } from "./client.ts";
 
 const args = process.argv.slice(2);
@@ -255,6 +257,28 @@ if (cmd === "logs") {
   process.exit(0);
 }
 
+if (cmd === "browser-logs") {
+  const res = await send("browser-logs");
+  if (!res.ok) exit(res, "");
+  const entries = res.data as { level: string; args: string; timestamp: number }[];
+  if (entries.length === 0) {
+    console.log("(no console output captured)");
+    process.exit(0);
+  }
+  const lines = entries.map(
+    (e) => `[${e.level.toUpperCase().padEnd(5)}] ${e.args}`,
+  );
+  const output = lines.join("\n");
+  if (output.length > 4000) {
+    const path = join(tmpdir(), `next-browser-console-${process.pid}.log`);
+    writeFileSync(path, output);
+    console.log(`(${entries.length} entries written to ${path})`);
+  } else {
+    console.log(output);
+  }
+  process.exit(0);
+}
+
 if (cmd === "action") {
   const res = await send("mcp", { tool: "get_server_action_by_id", args: { actionId: arg } });
   exit(res, res.ok ? json(res.data) : "");
@@ -381,6 +405,7 @@ function printUsage() {
       "\n" +
       "  errors             show build/runtime errors\n" +
       "  logs               show recent dev server log output\n" +
+      "  browser-logs       show browser console output (log/warn/error/info)\n" +
       "  network [idx]      list network requests, or inspect one\n" +
       "\n" +
       "  page               show current page segments and router info\n" +

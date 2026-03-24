@@ -852,6 +852,14 @@ export async function mcp(tool: string, args?: Record<string, unknown>) {
   return nextMcp.call(origin, tool, args);
 }
 
+/** Return browser console output captured by the init-script interceptor. */
+export async function browserLogs() {
+  if (!page) throw new Error("browser not open");
+  return page.evaluate(
+    () => (window as any).__NEXT_BROWSER_CONSOLE_LOGS__ ?? [],
+  );
+}
+
 /** Get network request log, or detail for a specific request index. */
 export function network(idx?: number) {
   return idx == null ? net.format() : net.detail(idx);
@@ -962,6 +970,42 @@ async function launch() {
       }
       return orig.apply(console, [label, ...args] as any);
     };
+  });
+
+  // Intercept console.log/warn/error/info to capture browser console output.
+  // This works for both dev and prod builds — unlike `logs`/`errors` which
+  // rely on the Next.js dev server MCP endpoint.
+  await ctx.addInitScript(() => {
+    const MAX = 500;
+    const entries: Array<{ level: string; args: string; timestamp: number }> = [];
+    (window as any).__NEXT_BROWSER_CONSOLE_LOGS__ = entries;
+
+    function safe(val: unknown): string {
+      if (val === undefined) return "undefined";
+      if (val === null) return "null";
+      if (val instanceof Error) return `${val.name}: ${val.message}`;
+      if (typeof val === "object") {
+        try {
+          return JSON.stringify(val);
+        } catch {
+          return String(val);
+        }
+      }
+      return String(val);
+    }
+
+    for (const level of ["log", "warn", "error", "info"] as const) {
+      const orig = console[level];
+      console[level] = function (...args: any[]) {
+        entries.push({
+          level,
+          args: args.map(safe).join(" "),
+          timestamp: performance.now(),
+        });
+        if (entries.length > MAX) entries.splice(0, entries.length - MAX);
+        return orig.apply(console, args);
+      };
+    }
   });
 
   // Next.js devtools overlay is removed before each screenshot via hideDevOverlay().

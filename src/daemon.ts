@@ -87,6 +87,10 @@ async function run(cmd: Cmd) {
     const data = await browser.perf(cmd.url as string | undefined);
     return { ok: true, data };
   }
+  if (cmd.action === "browser-logs") {
+    const data = await browser.browserLogs();
+    return { ok: true, data };
+  }
   if (cmd.action === "restart") {
     const data = await browser.restart();
     return { ok: true, data };
