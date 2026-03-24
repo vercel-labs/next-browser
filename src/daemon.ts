@@ -91,6 +91,14 @@ async function run(cmd: Cmd) {
     const data = await browser.browserLogs();
     return { ok: true, data };
   }
+  if (cmd.action === "renders-start") {
+    await browser.rendersStart();
+    return { ok: true };
+  }
+  if (cmd.action === "renders-stop") {
+    const data = await browser.rendersStop();
+    return { ok: true, data };
+  }
   if (cmd.action === "restart") {
     const data = await browser.restart();
     return { ok: true, data };

@@ -279,6 +279,112 @@ if (cmd === "browser-logs") {
   process.exit(0);
 }
 
+if (cmd === "renders" && arg === "start") {
+  const res = await send("renders-start");
+  exit(res, "recording renders — interact with the page, then run `renders stop`");
+}
+
+if (cmd === "renders" && arg === "stop") {
+  const useJson = args.includes("--json");
+  const res = await send("renders-stop");
+  if (!res.ok) exit(res, "");
+  type Change = { type: string; name?: string; prev?: string; next?: string };
+  type Component = {
+    name: string;
+    count: number;
+    totalTime: number;
+    selfTime: number;
+    domMutations: number;
+    changes: Change[];
+    changeSummary: Record<string, number>;
+  };
+  const d = res.data as {
+    elapsed: number;
+    fps: { avg: number; min: number; max: number; drops: number };
+    totalRenders: number;
+    totalComponents: number;
+    components: Component[];
+  };
+
+  if (d.components.length === 0) {
+    if (useJson) console.log(JSON.stringify(d, null, 2));
+    else console.log("(no renders captured)");
+    process.exit(0);
+  }
+
+  if (useJson) {
+    const output = JSON.stringify(d, null, 2);
+    if (output.length > 4000) {
+      const path = join(tmpdir(), `next-browser-renders-${process.pid}.json`);
+      writeFileSync(path, output);
+      console.log(path);
+    } else {
+      console.log(output);
+    }
+    process.exit(0);
+  }
+
+  const lines: string[] = [
+    `# Render Profile — ${d.elapsed}s recording`,
+    `# ${d.totalRenders} renders across ${d.totalComponents} components`,
+    `# FPS: avg ${d.fps.avg}, min ${d.fps.min}, max ${d.fps.max}, drops (<30fps): ${d.fps.drops}`,
+    "",
+    "## Components by total render time",
+  ];
+
+  const nameW = Math.max(9, ...d.components.slice(0, 50).map((c) => c.name.length));
+  const header = `| ${"Component".padEnd(nameW)} | Renders | Total    | Self     | DOM | Top change reason          |`;
+  const sep    = `| ${"-".repeat(nameW)} | ------- | -------- | -------- | --- | -------------------------- |`;
+  lines.push(header, sep);
+
+  for (const c of d.components.slice(0, 50)) {
+    const total = c.totalTime > 0 ? `${c.totalTime}ms` : "—";
+    const self = c.selfTime > 0 ? `${c.selfTime}ms` : "—";
+    const dom = `${c.domMutations}/${c.count}`;
+    const topChange = Object.entries(c.changeSummary).sort((a, b) => b[1] - a[1])[0];
+    const changeStr = topChange ? topChange[0] : "—";
+    lines.push(
+      `| ${c.name.padEnd(nameW)} | ${String(c.count).padStart(7)} | ${total.padStart(8)} | ${self.padStart(8)} | ${dom.padStart(3)} | ${changeStr.padEnd(26)} |`,
+    );
+  }
+  if (d.components.length > 50) {
+    lines.push(`... and ${d.components.length - 50} more`);
+  }
+
+  // Detail: show prev→next values for top components with non-mount changes
+  const detailed = d.components
+    .filter((c) => c.changes.some((ch) => ch.type !== "mount" && ch.type !== "parent"))
+    .slice(0, 15);
+  if (detailed.length > 0) {
+    lines.push("", "## Change details (prev → next)");
+    for (const c of detailed) {
+      lines.push(`  ${c.name}`);
+      // Deduplicate: show unique type+name combinations with their prev→next
+      const seen = new Set<string>();
+      for (const ch of c.changes) {
+        if (ch.type === "mount" || ch.type === "parent") continue;
+        const key = `${ch.type}:${ch.name}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const label = ch.type === "props" ? `props.${ch.name}`
+          : ch.type === "state" ? `state (${ch.name})`
+          : `context (${ch.name})`;
+        lines.push(`    ${label}: ${ch.prev ?? "?"} → ${ch.next ?? "?"}`);
+      }
+    }
+  }
+
+  const output = lines.join("\n");
+  if (output.length > 4000) {
+    const path = join(tmpdir(), `next-browser-renders-${process.pid}.txt`);
+    writeFileSync(path, output);
+    console.log(`(${d.totalComponents} components written to ${path})`);
+  } else {
+    console.log(output);
+  }
+  process.exit(0);
+}
+
 if (cmd === "action") {
   const res = await send("mcp", { tool: "get_server_action_by_id", args: { actionId: arg } });
   exit(res, res.ok ? json(res.data) : "");
@@ -385,6 +491,8 @@ function printUsage() {
       "  back               go back in history\n" +
       "  reload             reload current page\n" +
       "  perf [url]         profile page load (CWVs + React hydration timing)\n" +
+      "  renders start      start recording React re-renders\n" +
+      "  renders stop [--json]  stop and print render profile\n" +
       "  restart-server     restart the Next.js dev server (clears fs cache)\n" +
       "\n" +
       "  ppr lock           enter PPR instant-navigation mode\n" +

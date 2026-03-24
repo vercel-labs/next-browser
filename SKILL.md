@@ -196,6 +196,77 @@ React profiling build / `next dev`; production strips `console.timeStamp`).
 
 Without a URL, reloads the current page. With a URL, navigates there first.
 
+### `renders start`
+
+Begin recording React re-renders. Hooks into `onCommitFiberRoot` to
+collect raw per-component data: render count, totalTime, selfTime,
+DOM mutations, change reasons, and FPS.
+
+Survives full-page navigations (`goto`/`reload`) and captures mount
+and hydration renders — no need to start before or after navigation.
+
+```
+$ next-browser renders start
+recording renders — interact with the page, then run `renders stop`
+```
+
+### `renders stop [--json]`
+
+Stop recording and print a per-component render profile. Raw data —
+the agent decides what's actionable.
+
+```
+$ next-browser renders stop
+# Render Profile — 3.05s recording
+# 426 renders across 38 components
+# FPS: avg 120, min 106, max 137, drops (<30fps): 0
+
+## Components by total render time
+| Component              | Renders | Total    | Self     | DOM   | Top change reason          |
+| ---------------------- | ------- | -------- | -------- | ----- | -------------------------- |
+| Parent                 |      10 |   5.8ms  |   3.4ms  | 10/10 | state (hook #0)            |
+| MemoChild              |      30 |     2ms  |   1.9ms  | 30/30 | props.data                 |
+| Router                 |      10 |   6.3ms  |       —  |  0/10 | parent (ErrorBoundaryHandler) |
+
+## Change details (prev → next)
+  Parent
+    state (hook #0): 0 → 1
+  MemoChild
+    props.data: {value} → {value}
+```
+
+The **Change details** section shows the actual prev→next values for
+each change. This makes the data self-contained — you can see that
+`MemoChild` gets `props.data: {value} → {value}` (same shape, new
+reference — memo defeated) without needing to inspect the component.
+
+**With `--json`**, outputs raw structured JSON with full change arrays
+per component (type, name, prev, next for each render event).
+
+**Columns:**
+- `Renders` — how many times the component rendered
+- `Total` — inclusive render time (component + children)
+- `Self` — exclusive render time (component only, excludes children)
+- `DOM` — how many renders actually mutated the DOM vs total renders
+- `Top change reason` — most frequent trigger for this component
+
+**Timing data** (`Total`, `Self`) requires a React profiling build
+(`next dev`). In production builds these columns show `—` but render
+counts, DOM mutations, and change reasons are still reported.
+
+**Change reasons** — what triggered each re-render:
+- `props.<name>` — a prop changed by reference, with prev→next values
+- `state (hook #N)` — a useState/useReducer hook changed, with prev→next values
+- `context (<name>)` — a specific context changed, with prev→next values
+- `parent (<name>)` — parent component re-rendered, names the parent
+- `mount` — first render
+
+**FPS** — frames per second during recording. `drops` counts frames
+below 30fps.
+
+Up to 200 components are tracked. If output exceeds 4 000 chars it is
+written to a temp file.
+
 ### `restart-server`
 
 Restart the Next.js dev server and clear its caches. Forces a clean
@@ -706,6 +777,41 @@ Inspect a server action by its ID (from `next-action` header in network list).
 ---
 
 ## Scenarios
+
+### Debugging rendering performance
+
+When the user says "this page is slow after load", "too many re-renders",
+"laggy interactions", or "janky" — this is update-phase rendering, not
+initial load. Use `renders` to profile it. (For initial load, use `perf`.)
+
+**Workflow:**
+
+1. `renders start` — begin recording.
+2. `goto` the page (the hook survives navigation and captures mount).
+3. Reproduce the slow interaction: click buttons, type in inputs,
+   navigate via `push`, or just wait if the issue is polling/timers.
+4. `renders stop` — read the raw data.
+5. Use the data to form hypotheses. The columns give you:
+   - `Renders` + `Self` — is this component expensive per-render, or
+     just called too often?
+   - `DOM` — did the renders actually produce visible changes?
+     A component with 100 renders and 0 DOM mutations is doing
+     purely wasted work.
+   - `Total` vs `Self` — is the cost in this component or its children?
+   - Change reasons — what's driving the re-renders?
+   - FPS — are the re-renders actually causing user-visible jank?
+6. `tree` to find the component's ID, then `tree <id>` for its source
+   file, props, and hooks.
+7. Read the source to understand *why* it re-renders.
+
+**Verify the fix.** After editing the code, HMR picks it up. Re-run
+`renders start` / `renders stop` and compare the raw numbers to the
+previous profile.
+
+**Test your hypothesis before proposing a fix.** If you suspect a
+component is the root cause, find evidence — inspect it with `tree`,
+read its source, check what's changing via the change reason column.
+Don't propose changes from a single observation.
 
 ### Growing the static shell
 
