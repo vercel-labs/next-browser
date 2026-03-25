@@ -203,15 +203,15 @@ the agent decides what's actionable.
 ```
 $ next-browser renders stop
 # Render Profile — 3.05s recording
-# 426 renders across 38 components
+# 426 renders (38 mounts + 388 re-renders) across 38 components
 # FPS: avg 120, min 106, max 137, drops (<30fps): 0
 
 ## Components by total render time
-| Component              | Renders | Total    | Self     | DOM   | Top change reason          |
-| ---------------------- | ------- | -------- | -------- | ----- | -------------------------- |
-| Parent                 |      10 |   5.8ms  |   3.4ms  | 10/10 | state (hook #0)            |
-| MemoChild              |      30 |     2ms  |   1.9ms  | 30/30 | props.data                 |
-| Router                 |      10 |   6.3ms  |       —  |  0/10 | parent (ErrorBoundaryHandler) |
+| Component              | Insts | Mounts | Re-renders | Total    | Self     | DOM   | Top change reason          |
+| ---------------------- | ----- | ------ | ---------- | -------- | -------- | ----- | -------------------------- |
+| Parent                 |     1 |      1 |          9 |   5.8ms  |   3.4ms  | 10/10 | state (hook #0)            |
+| MemoChild              |     3 |      3 |         27 |     2ms  |   1.9ms  | 30/30 | props.data                 |
+| Router                 |     1 |      1 |          9 |   6.3ms  |       —  |  0/10 | parent (ErrorBoundaryHandler) |
 
 ## Change details (prev → next)
   Parent
@@ -229,7 +229,9 @@ reference — memo defeated) without needing to inspect the component.
 per component (type, name, prev, next for each render event).
 
 **Columns:**
-- `Renders` — how many times the component rendered
+- `Insts` — number of unique component instances observed during recording
+- `Mounts` — how many times an instance mounted (first render, no alternate fiber)
+- `Re-renders` — update-phase renders (total renders minus mounts)
 - `Total` — inclusive render time (component + children)
 - `Self` — exclusive render time (component only, excludes children)
 - `DOM` — how many renders actually mutated the DOM vs total renders
@@ -244,6 +246,7 @@ counts, DOM mutations, and change reasons are still reported.
 - `state (hook #N)` — a useState/useReducer hook changed, with prev→next values
 - `context (<name>)` — a specific context changed, with prev→next values
 - `parent (<name>)` — parent component re-rendered, names the parent
+- `parent (<name> (mount))` — parent is also mounting (typical during page load, not a leak)
 - `mount` — first render
 
 **FPS** — frames per second during recording. `drops` counts frames
@@ -748,13 +751,18 @@ initial load. Use `renders` to profile it. (For initial load, use `perf`.)
    navigate via `push`, or just wait if the issue is polling/timers.
 4. `renders stop` — read the raw data.
 5. Use the data to form hypotheses. The columns give you:
-   - `Renders` + `Self` — is this component expensive per-render, or
-     just called too often?
+   - `Mounts` vs `Re-renders` — is this component re-rendering after
+     load, or is the count just from mount-time cascading?
+   - `Insts` — is a high render count from many instances or one
+     instance rendering excessively?
+   - `Self` — is this component expensive per-render, or just called
+     too often?
    - `DOM` — did the renders actually produce visible changes?
      A component with 100 renders and 0 DOM mutations is doing
      purely wasted work.
    - `Total` vs `Self` — is the cost in this component or its children?
    - Change reasons — what's driving the re-renders?
+     `parent (X (mount))` is load-time cascading, not a leak.
    - FPS — are the re-renders actually causing user-visible jank?
 6. `tree` to find the component's ID, then `tree <id>` for its source
    file, props, and hooks.

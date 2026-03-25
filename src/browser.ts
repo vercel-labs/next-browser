@@ -981,7 +981,8 @@ const rendersHookScript = `(() => {
       while (parent) {
         const pName = getName(parent);
         if (pName) {
-          changes.push({ type: "parent", name: pName });
+          const suffix = !parent.alternate ? " (mount)" : "";
+          changes.push({ type: "parent", name: pName + suffix });
           break;
         }
         parent = parent.return;
@@ -1033,11 +1034,17 @@ const rendersHookScript = `(() => {
           } else {
             if (!data[name]) {
               data[name] = {
-                count: 0, totalTime: 0, selfTime: 0,
-                domMutations: 0, changes: []
+                count: 0, mounts: 0, totalTime: 0, selfTime: 0,
+                domMutations: 0, changes: [],
+                _instances: new Set()
               };
             }
             data[name].count++;
+            if (!fiber.alternate) data[name].mounts++;
+            if (!data[name]._instances.has(fiber)) {
+              data[name]._instances.add(fiber);
+              if (fiber.alternate) data[name]._instances.add(fiber.alternate);
+            }
             if (typeof fiber.actualDuration === "number") {
               data[name].totalTime += fiber.actualDuration;
               data[name].selfTime += Math.max(0, fiber.actualDuration - childrenTime(fiber));
@@ -1093,10 +1100,12 @@ export async function rendersStop() {
           string,
           {
             count: number;
+            mounts: number;
             totalTime: number;
             selfTime: number;
             domMutations: number;
             changes: Change[];
+            _instances: Set<any>;
           }
         >
       | undefined;
@@ -1142,6 +1151,8 @@ export async function rendersStop() {
         elapsed: 0,
         fps: fpsStats,
         totalRenders: 0,
+        totalMounts: 0,
+        totalReRenders: 0,
         totalComponents: 0,
         components: [],
       };
@@ -1163,6 +1174,9 @@ export async function rendersStop() {
         return {
           name,
           count: entry.count,
+          mounts: entry.mounts,
+          reRenders: entry.count - entry.mounts,
+          instanceCount: entry._instances.size,
           totalTime: round(entry.totalTime),
           selfTime: round(entry.selfTime),
           domMutations: entry.domMutations,
@@ -1172,10 +1186,13 @@ export async function rendersStop() {
       })
       .sort((a, b) => b.totalTime - a.totalTime || b.count - a.count);
 
+    const totalMounts = components.reduce((s, c) => s + c.mounts, 0);
     return {
       elapsed: round(elapsed / 1000),
       fps: fpsStats,
       totalRenders: components.reduce((s, c) => s + c.count, 0),
+      totalMounts,
+      totalReRenders: components.reduce((s, c) => s + c.reRenders, 0),
       totalComponents: components.length,
       components,
     };
