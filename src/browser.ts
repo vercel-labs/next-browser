@@ -39,9 +39,15 @@ let profileDirPath: string | null = null;
 let initialOrigin: string | null = null;
 let ssrLocked = false;
 
-let previewBrowser: Browser | BrowserContext | null = null;
-let previewPage: Page | null = null;
-let previewImages: { caption?: string; imgData: string; timestamp: string }[] = [];
+let screenshotBrowser: Browser | BrowserContext | null = null;
+let screenshotPage: Page | null = null;
+
+type ScreenshotEntry = {
+  caption?: string;
+  imgData: string;
+  timestamp: string;
+};
+let screenshotEntries: ScreenshotEntry[] = [];
 
 /** Install or remove the script-blocking route handler based on ssrLocked. */
 async function syncSsrRoutes() {
@@ -90,10 +96,10 @@ export async function cookies(cookies: { name: string; value: string }[], domain
 
 /** Close the browser and reset all state. */
 export async function close() {
-  await previewBrowser?.close().catch(() => {});
-  previewBrowser = null;
-  previewPage = null;
-  previewImages = [];
+  await screenshotBrowser?.close().catch(() => {});
+  screenshotBrowser = null;
+  screenshotPage = null;
+  screenshotEntries = [];
   await context?.close();
   context = null;
   page = null;
@@ -572,80 +578,78 @@ async function formatSource([file, line, col]: [string, number, number]) {
 
 // ── Utilities ────────────────────────────────────────────────────────────────
 
-/** Take a screenshot and display it in a separate headed Chromium window.
- *  Images accumulate across calls — use `clear` to reset. */
-export async function preview(caption?: string, clear?: boolean) {
-  if (!page) throw new Error("browser not open");
-  if (clear) previewImages = [];
+/** Render screenshot entries as HTML and refresh (or launch) the log window.
+ *  No-op in headless mode. */
+async function refreshScreenshotLog() {
+  if (process.env.NEXT_BROWSER_HEADLESS) return;
 
-  const path = await screenshot();
-  const imgData = readFileSync(path).toString("base64");
-  const timestamp = new Date().toLocaleTimeString();
-  previewImages.unshift({ caption, imgData, timestamp });
-
-  const imagesHtml = previewImages
-    .map(
-      (img) =>
+  const entriesHtml = screenshotEntries
+    .map((e) => {
+      const header =
         `<div style="padding:4px 12px;display:flex;align-items:baseline;gap:8px">` +
-        (img.caption
-          ? `<span style="font-size:14px">${escapeHtml(img.caption)}</span>`
+        (e.caption
+          ? `<span style="font-size:14px">${escapeHtml(e.caption)}</span>`
           : "") +
-        `<span style="font-size:11px;opacity:0.5">${escapeHtml(img.timestamp)}</span>` +
-        `</div>` +
-        `<img src="data:image/png;base64,${img.imgData}" style="display:block;max-width:100%">`,
-    )
+        `<span style="font-size:11px;opacity:0.5">${escapeHtml(e.timestamp)}</span>` +
+        `</div>`;
+      return header + `<img src="data:image/png;base64,${e.imgData}" style="display:block;max-width:100%">`;
+    })
     .join(`<hr style="border:none;border-top:1px solid #333;margin:12px 0">`);
 
   const html =
-    `<html><head><title>next-browser preview</title></head>` +
+    `<html><head><title>Screenshot Log</title></head>` +
     `<body style="margin:0;background:#111;color:#fff;font-family:system-ui">` +
-    `<div style="padding:8px 12px;font-size:11px;opacity:0.5;text-transform:uppercase;letter-spacing:0.05em">next-browser preview</div>` +
-    `${imagesHtml}` +
+    `<div style="padding:8px 12px;font-size:11px;opacity:0.5;text-transform:uppercase;letter-spacing:0.05em">Screenshot Log</div>` +
+    `${entriesHtml}` +
     `</body></html>`;
-  const htmlPath = path.replace(/\.png$/, ".html");
+  const htmlPath = join(tmpdir(), `next-browser-screenshots-${process.pid}.html`);
   writeFileSync(htmlPath, html);
   const target = `file://${htmlPath}`;
 
-  // Reuse existing preview window, or launch a new one.
-  if (previewPage && !previewPage.isClosed()) {
+  // Reuse existing log window, or launch a new one.
+  if (screenshotPage && !screenshotPage.isClosed()) {
     try {
-      await previewPage.goto(target);
-      await previewPage.bringToFront();
-      return path;
+      await screenshotPage.goto(target);
+      await screenshotPage.bringToFront();
+      return;
     } catch {
       // Window was closed by user — fall through to launch a new one.
-      await previewBrowser?.close().catch(() => {});
+      await screenshotBrowser?.close().catch(() => {});
     }
   }
 
   const { mkdtempSync } = await import("node:fs");
-  const { join } = await import("node:path");
-  const { tmpdir } = await import("node:os");
-  const userDataDir = mkdtempSync(join(tmpdir(), "nb-preview-"));
+  const userDataDir = mkdtempSync(join(tmpdir(), "nb-screenshots-"));
   const ctx = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
     args: [`--app=${target}`, "--window-size=820,640"],
     viewport: null,
   });
-  previewBrowser = ctx;
-  previewPage = ctx.pages()[0] ?? (await ctx.waitForEvent("page"));
-  await previewPage.waitForLoadState();
-  await previewPage.bringToFront();
-  return path;
+  screenshotBrowser = ctx;
+  screenshotPage = ctx.pages()[0] ?? (await ctx.waitForEvent("page"));
+  await screenshotPage.waitForLoadState();
+  await screenshotPage.bringToFront();
 }
 
 function escapeHtml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-/** Screenshot saved to a temp file. Returns the file path. */
-export async function screenshot(opts?: { fullPage?: boolean }) {
+/** Screenshot saved to a temp file. Opens the Screenshot Log window in headed mode.
+ *  Returns the file path. */
+export async function screenshot(opts?: { fullPage?: boolean; caption?: string }) {
   if (!page) throw new Error("browser not open");
   await hideDevOverlay();
   const { join } = await import("node:path");
   const { tmpdir } = await import("node:os");
   const path = join(tmpdir(), `next-browser-${Date.now()}.png`);
   await page.screenshot({ path, fullPage: opts?.fullPage });
+
+  const imgData = readFileSync(path).toString("base64");
+  const timestamp = new Date().toLocaleTimeString();
+  screenshotEntries.unshift({ caption: opts?.caption, imgData, timestamp });
+  await refreshScreenshotLog();
+
   return path;
 }
 

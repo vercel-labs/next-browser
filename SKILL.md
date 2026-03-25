@@ -30,31 +30,34 @@ See https://nextjs.org/docs/app/guides/ai-agents for background.
 
 ---
 
-## When this skill loads
+## Working with the user
 
-Your first message introduces the tool and asks setup questions. Don't say
-"ready, what would you like to do?" and don't run speculative commands or
-auto-discover (port scans, `project`, config reads).
+### Onboarding
 
-If the user already provided a URL, cookies, and task in their message,
-skip the questions — go straight to `open` and start working. Only ask
-what's missing.
+- If the user already gave a URL, cookies, and task — skip questions, `open` and go.
+- Otherwise ask only what's missing: dev server URL (running?), session
+  cookies if behind login.
+- For cookies, give the user two options: (1) DevTools → Application →
+  Cookies, export as `[{"name":"session","value":"..."}]`, or (2) just
+  "Copy as cURL" from DevTools → Network on any authenticated request —
+  you can extract the cookies from the header yourself.
+- Never say "ready, what would you like to do?". Never auto-discover
+  (port scans, `project`, config reads) before being asked.
 
-Otherwise say something like:
+### Show, don't tell
 
-> This opens a headed browser against your Next.js dev server so I can
-> read the React component tree, see the PPR shell, and check errors the
-> way you would in DevTools. To start:
->
-> - What's your dev server URL? (And is it running?)
-> - Are the pages you're debugging behind a login? If so I'll need your
->   session cookies — easiest is to copy them from your browser's
->   DevTools → Application → Cookies into a JSON file like
->   `[{"name":"session","value":"..."}]`. If the pages are public, skip
->   this.
+- `screenshot` after every navigation, code change, or visual finding.
+  Always caption it (`screenshot "Before fix"`, `screenshot "PPR shell — locked"`).
+  In headed mode the Screenshot Log window opens automatically so the user
+  sees every screenshot in real time.
+- Don't narrate what a screenshot shows. State your conclusion or next action.
 
-Wait for answers. Then `open <url> [--cookies-json <file>]`. Every other
-command errors without an open session.
+### Escalate, don't decide
+
+- Suspense boundary placement and fallback UI — design with the user.
+- Caching decisions (staleness, visibility) — the user's call, not yours.
+- "Make this page faster" without context — ask: cold URL hit or
+  client navigation? From which page? Don't guess, don't do both.
 
 ---
 
@@ -63,24 +66,6 @@ command errors without an open session.
 By default the browser opens headed (visible window). For CI or cloud
 environments with no display, set `NEXT_BROWSER_HEADLESS=1` to run
 headless.
-
----
-
-## Keep the user in the loop visually
-
-During debug sessions, use `preview` liberally so the user can see what
-you see. Good moments to preview:
-
-- Right after opening a page or navigating, so the user confirms you're
-  on the right page.
-- After making a code change and reloading — show the before/after.
-- When inspecting the PPR shell (locked state) — the user can judge
-  shell quality faster than reading a tree dump.
-- When something looks wrong — show it, don't just describe it.
-
-Use captions to annotate what the screenshot represents (e.g.
-`preview "PPR shell — locked"`, `preview "After fix"`). This makes
-the preview window self-documenting as you iterate.
 
 ---
 
@@ -418,58 +403,29 @@ command to change dimensions.
 
 ---
 
-### `preview [caption] [--clear]`
+### `screenshot [caption] [--full-page]`
 
-Take a screenshot and pop it open in a separate headed Chromium window.
-**Images accumulate** — each call appends a new captioned screenshot
-below the previous ones, separated by a divider. Use `--clear` to reset
-and start fresh. The preview window is closed automatically when you run
-`close`.
+Behavioral rules are in **Working with the user → Show, don't tell**.
 
-```
-$ next-browser preview "Before fix"
-preview → /var/folders/.../next-browser-1772770369495.png
+Use `screenshot` only when visual layout matters (CSS, appearance, PPR
+shell). For page content or deciding what to click, use `snapshot`.
 
-$ next-browser preview "After fix"
-preview → /var/folders/.../next-browser-1772770369496.png
-# Window now shows both images stacked vertically
+Captures the viewport (or full scrollable page with `--full-page`) to a
+temp PNG file and returns the path. In headed mode, every screenshot is
+added to the **Screenshot Log** — a live browser window that accumulates
+all screenshots taken during the session. In headless mode the log window
+is skipped.
 
-$ next-browser preview --clear "Fresh start"
-preview → /var/folders/.../next-browser-1772770369497.png
-# Window reset — only shows this image
-```
-
-### `screenshot`
-
-Viewport PNG to a temp file. Returns the path. Read with the Read tool.
-Use `--full-page` to capture the entire scrollable page.
+The optional caption describes the screenshot or the rationale for taking
+it. Captions appear in the Screenshot Log above each image.
 
 ```
-$ next-browser screenshot
-/var/folders/.../next-browser-1772770369495.png
+$ next-browser screenshot "Homepage after login"
+/tmp/next-browser-1711234567890.png
 
-$ next-browser screenshot --full-page
-/var/folders/.../next-browser-1772770369496.png
+$ next-browser screenshot "Full page layout" --full-page
+/tmp/next-browser-1711234567891.png
 ```
-
-**Always follow `screenshot` with `preview` + a caption** so the user
-can see what you see. `screenshot` alone only saves a file — the user
-has no visibility into what you captured unless you `preview` it.
-
-**For before/after comparison**, call `preview "Before"` on the original
-state, then make changes and call `preview "After"`. Both images stay
-visible in the preview window. Use `--clear` when starting a new
-comparison to reset accumulated images.
-
-Don't narrate what the screenshot shows — the user can see the browser.
-State your conclusion or next action, not a description of the page.
-
-**Prefer `snapshot` over `screenshot`** when you need to understand
-what's on the page or decide what to interact with. `snapshot`
-returns structured, semantic data (roles, names, state) that you can act
-on directly — screenshots are pixels you have to interpret. Use
-`screenshot` only when visual layout matters (CSS issues, verifying
-appearance, PPR shell inspection).
 
 ### `snapshot`
 
@@ -834,13 +790,8 @@ access move into a child? If yes, move it — this component becomes sync
 and rejoins the shell. Follow the access down and ask again.
 
 When you reach a component where it can't move any lower, there are two
-exits — both are human calls, bring the question to them:
-
-- Wrap it in a Suspense boundary. The fallback UI should resemble what
-  renders inside — design it together, don't assume.
-- Cache it so it's available at prerender (Cache Components). Whether
-  this data is safe to cache — staleness, who sees it — is their call,
-  not yours.
+exits — wrap in a Suspense boundary, or cache it for prerender. Both are
+human calls (see **Working with the user → Escalate, don't decide**).
 
 **Test your hypothesis before proposing a fix.** If you suspect a
 component is the cause, find evidence — check `errors`, inspect the
@@ -848,11 +799,9 @@ component with `tree`, or compare a route where the shell works to
 one where it doesn't. Don't commit to a root cause or propose changes
 from a single observation.
 
-There are two shells depending on how the user arrives. They're observed
-differently and can differ in content — establish which one you're
-optimizing before touching the browser. If the ask is "make this page
-load faster" without qualification, ask: cold URL hit, or clicking in
-from another page (which page)? Don't guess, don't do both.
+There are two shells depending on how the user arrives — establish which
+one you're optimizing first (see **Working with the user → Escalate,
+don't decide**).
 
 **Direct load — the PPR shell.** Server HTML for a cold hit on the URL.
 Lock first, then `goto` the target — the lock suppresses hydration so you
