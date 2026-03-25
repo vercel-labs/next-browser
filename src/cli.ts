@@ -287,6 +287,9 @@ if (cmd === "renders" && arg === "stop") {
   type Component = {
     name: string;
     count: number;
+    mounts: number;
+    reRenders: number;
+    instanceCount: number;
     totalTime: number;
     selfTime: number;
     domMutations: number;
@@ -297,6 +300,8 @@ if (cmd === "renders" && arg === "stop") {
     elapsed: number;
     fps: { avg: number; min: number; max: number; drops: number };
     totalRenders: number;
+    totalMounts: number;
+    totalReRenders: number;
     totalComponents: number;
     components: Component[];
   };
@@ -321,15 +326,15 @@ if (cmd === "renders" && arg === "stop") {
 
   const lines: string[] = [
     `# Render Profile — ${d.elapsed}s recording`,
-    `# ${d.totalRenders} renders across ${d.totalComponents} components`,
+    `# ${d.totalRenders} renders (${d.totalMounts} mounts + ${d.totalReRenders} re-renders) across ${d.totalComponents} components`,
     `# FPS: avg ${d.fps.avg}, min ${d.fps.min}, max ${d.fps.max}, drops (<30fps): ${d.fps.drops}`,
     "",
     "## Components by total render time",
   ];
 
   const nameW = Math.max(9, ...d.components.slice(0, 50).map((c) => c.name.length));
-  const header = `| ${"Component".padEnd(nameW)} | Renders | Total    | Self     | DOM | Top change reason          |`;
-  const sep    = `| ${"-".repeat(nameW)} | ------- | -------- | -------- | --- | -------------------------- |`;
+  const header = `| ${"Component".padEnd(nameW)} | Insts | Mounts | Re-renders | Total    | Self     | DOM   | Top change reason          |`;
+  const sep    = `| ${"-".repeat(nameW)} | ----- | ------ | ---------- | -------- | -------- | ----- | -------------------------- |`;
   lines.push(header, sep);
 
   for (const c of d.components.slice(0, 50)) {
@@ -339,7 +344,7 @@ if (cmd === "renders" && arg === "stop") {
     const topChange = Object.entries(c.changeSummary).sort((a, b) => b[1] - a[1])[0];
     const changeStr = topChange ? topChange[0] : "—";
     lines.push(
-      `| ${c.name.padEnd(nameW)} | ${String(c.count).padStart(7)} | ${total.padStart(8)} | ${self.padStart(8)} | ${dom.padStart(3)} | ${changeStr.padEnd(26)} |`,
+      `| ${c.name.padEnd(nameW)} | ${String(c.instanceCount).padStart(5)} | ${String(c.mounts).padStart(6)} | ${String(c.reRenders).padStart(10)} | ${total.padStart(8)} | ${self.padStart(8)} | ${dom.padStart(5)} | ${changeStr.padEnd(26)} |`,
     );
   }
   if (d.components.length > 50) {
