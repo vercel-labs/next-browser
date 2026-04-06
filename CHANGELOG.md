@@ -1,5 +1,11 @@
 # @vercel/next-browser
 
+## 0.4.1
+
+### Patch Changes
+
+- [#24](https://github.com/vercel-labs/next-browser/pull/24) [`cf75416`](https://github.com/vercel-labs/next-browser/commit/cf75416840628330c7a7dc6f6cd43ff701d3394a) Thanks [@gaojude](https://github.com/gaojude)! - Move `SKILL.md` into `skills/next-browser/` so `npx skills add vercel-labs/next-browser` pulls only the skill markdown instead of the entire repo (dist, extensions, src, lockfile, etc.)
+
 ## 0.4.0
 
 ### Minor Changes
