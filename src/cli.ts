@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { send } from "./client.ts";
+import { parseCookies } from "./cookies.ts";
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -21,18 +22,27 @@ if (cmd === "--version" || cmd === "-v") {
 
 if (cmd === "open") {
   if (!arg) {
-    console.error("usage: next-browser open <url> [--cookies-json <file>]");
+    console.error("usage: next-browser open <url> [--cookies <file>]");
     process.exit(1);
   }
   const url = /^https?:\/\//.test(arg) ? arg : `http://${arg}`;
-  const cookieIdx = args.indexOf("--cookies-json");
+  const cookieIdx = (() => {
+    const i = args.indexOf("--cookies");
+    if (i >= 0) return i;
+    return args.indexOf("--cookies-json"); // back-compat alias
+  })();
   const cookieFile = cookieIdx >= 0 ? args[cookieIdx + 1] : undefined;
 
   if (cookieFile) {
     const res = await send("open");
     if (!res.ok) exit(res, "");
-    const raw = readFileSync(cookieFile, "utf-8");
-    const cookies = JSON.parse(raw);
+    let cookies;
+    try {
+      cookies = parseCookies(readFileSync(cookieFile, "utf-8"));
+    } catch (e) {
+      console.error(`cookies: ${(e as Error).message}`);
+      process.exit(1);
+    }
     const domain = new URL(url).hostname;
     const cRes = await send("cookies", { cookies, domain });
     if (!cRes.ok) exit(cRes, "");
@@ -481,7 +491,7 @@ function printUsage() {
   console.error(
     "usage: next-browser <command> [args]\n" +
       "\n" +
-      "  open <url> [--cookies-json <file>]  launch browser and navigate\n" +
+      "  open <url> [--cookies <file>]  launch browser and navigate\n" +
       "  close              close browser and daemon\n" +
       "\n" +
       "  goto <url>         full-page navigation (new document load)\n" +
