@@ -1,0 +1,8 @@
+curl 'http://localhost:3456/private' \
+  -H 'accept: text/html,application/xhtml+xml,application/xml;q=0.9' \
+  -H 'accept-language: en-US,en;q=0.9' \
+  -H 'cache-control: no-cache' \
+  -H 'cookie: session=dev-user-42; theme=dark; csrf=noise-token-here' \
+  -H 'pragma: no-cache' \
+  -H 'user-agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' \
+  --compressed
