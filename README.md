@@ -38,7 +38,7 @@ Requires Node >= 20.
 
 | Command                              | Description                                        |
 | ------------------------------------ | -------------------------------------------------- |
-| `open <url> [--cookies-json <file>]` | Launch browser and navigate (with optional cookies) |
+| `open <url> [--cookies <file>]`      | Launch browser and navigate (with optional cookies) |
 | `close`                              | Close browser and kill daemon                      |
 
 ### Navigation
@@ -62,9 +62,9 @@ Requires Node >= 20.
 | `snapshot`        | Accessibility tree with `[ref=eN]` markers on interactive elements |
 | `errors`          | Build and runtime errors for the current page                 |
 | `logs`            | Recent dev server log output                                  |
+| `browser-logs`    | Browser console output (log, warn, error, info)               |
 | `network [idx]`   | List network requests, or inspect one (headers, body)         |
-| `preview [caption]` | Screenshot + open in viewer window (accumulates across calls) |
-| `screenshot`      | Viewport PNG to a temp file (`--full-page` for entire page)   |
+| `screenshot [caption] [--full-page]` | Viewport PNG to a temp file (caption shown in Screenshot Log) |
 
 ### Interaction
 
@@ -77,11 +77,20 @@ Requires Node >= 20.
 
 ### Performance & PPR
 
-| Command        | Description                                                  |
-| -------------- | ------------------------------------------------------------ |
-| `perf [url]`   | Core Web Vitals + React hydration timing in one pass         |
-| `ppr lock`     | Freeze dynamic content to inspect the static shell           |
-| `ppr unlock`   | Resume dynamic content and print shell analysis              |
+| Command                        | Description                                          |
+| ------------------------------ | ---------------------------------------------------- |
+| `perf [url]`                   | Core Web Vitals + React hydration timing in one pass |
+| `renders start`                | Start recording React re-renders                     |
+| `renders stop [--json]`        | Stop and print per-component render profile          |
+| `ppr lock`                     | Freeze dynamic content to inspect the static shell   |
+| `ppr unlock`                   | Resume dynamic content and print shell analysis      |
+
+### Instrumentation
+
+| Command                        | Description                                          |
+| ------------------------------ | ---------------------------------------------------- |
+| `instrumentation set <path>`   | Inject script before page scripts on every navigation |
+| `instrumentation clear`        | Remove instrumentation script                        |
 
 ### Next.js MCP
 
