@@ -11,7 +11,7 @@
  * Module-level state: one browser context, one page, one PPR lock.
  */
 
-import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
@@ -635,22 +635,113 @@ function escapeHtml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/** Max screenshot dimension in pixels — keeps images under the 2000px limit
+ *  that multi-image LLM requests impose. */
+const SCREENSHOT_MAX_DIM = 1280;
+
 /** Screenshot saved to a temp file. Opens the Screenshot Log window in headed mode.
- *  Returns the file path. */
+ *  Returns the file path for a single image, or a directory path when the
+ *  image is sliced into multiple chunks (full-page on long pages). */
 export async function screenshot(opts?: { fullPage?: boolean; caption?: string }) {
   if (!page) throw new Error("browser not open");
   await hideDevOverlay();
-  const { join } = await import("node:path");
-  const { tmpdir } = await import("node:os");
   const path = join(tmpdir(), `next-browser-${Date.now()}.png`);
-  await page.screenshot({ path, fullPage: opts?.fullPage });
+  // scale: 'css' prevents Retina 2x doubling (1440x900 stays 1440x900).
+  await page.screenshot({ path, fullPage: opts?.fullPage, scale: "css" });
 
-  const imgData = readFileSync(path).toString("base64");
+  const result = await sliceIfNeeded(path, SCREENSHOT_MAX_DIM);
   const timestamp = new Date().toLocaleTimeString();
-  screenshotEntries.unshift({ caption: opts?.caption, imgData, timestamp });
+
+  if (typeof result === "string") {
+    // Single file — fits within limits.
+    const imgData = readFileSync(result).toString("base64");
+    screenshotEntries.unshift({ caption: opts?.caption, imgData, timestamp });
+  } else {
+    // Multiple chunks — add each to the screenshot log.
+    for (const chunk of result.files) {
+      const imgData = readFileSync(chunk).toString("base64");
+      const label = opts?.caption
+        ? `${opts.caption} (${result.files.indexOf(chunk) + 1}/${result.files.length})`
+        : `chunk ${result.files.indexOf(chunk) + 1}/${result.files.length}`;
+      screenshotEntries.unshift({ caption: label, imgData, timestamp });
+    }
+  }
   await refreshScreenshotLog();
 
-  return path;
+  return typeof result === "string" ? result : result.dir;
+}
+
+/** If the screenshot fits within `maxDim`, scale it in-place and return the
+ *  path. Otherwise slice it into ≤maxDim chunks inside a temp directory and
+ *  return `{ dir, files }`. */
+async function sliceIfNeeded(
+  filePath: string,
+  maxDim: number,
+): Promise<string | { dir: string; files: string[] }> {
+  const buf = readFileSync(filePath);
+  if (buf.length < 24) return filePath;
+  const w = buf.readUInt32BE(16);
+  const h = buf.readUInt32BE(20);
+  if (w <= maxDim && h <= maxDim) return filePath;
+  if (!page) return filePath;
+
+  const b64 = buf.toString("base64");
+  const wScale = Math.min(maxDim / w, 1);
+  const scaledW = Math.round(w * wScale);
+  const scaledH = Math.round(h * wScale);
+
+  if (scaledH <= maxDim) {
+    // Fits after width scaling — single resized file.
+    const resized: string = await page.evaluate(
+      async ({ src, nw, nh }: { src: string; nw: number; nh: number }) => {
+        const img = new Image();
+        await new Promise<void>((r, e) => { img.onload = () => r(); img.onerror = () => e(); img.src = `data:image/png;base64,${src}`; });
+        const c = document.createElement("canvas");
+        c.width = nw; c.height = nh;
+        c.getContext("2d")!.drawImage(img, 0, 0, nw, nh);
+        return c.toDataURL("image/png").split(",")[1]!;
+      },
+      { src: b64, nw: scaledW, nh: scaledH },
+    );
+    writeFileSync(filePath, Buffer.from(resized, "base64"));
+    return filePath;
+  }
+
+  // Slice into chunks of maxDim height (in scaled pixels).
+  const chunkCount = Math.ceil(scaledH / maxDim);
+  const chunks: string[] = await page.evaluate(
+    async ({ src, nw, totalH, max, count }: {
+      src: string; nw: number; totalH: number; max: number; count: number;
+    }) => {
+      const img = new Image();
+      await new Promise<void>((r, e) => { img.onload = () => r(); img.onerror = () => e(); img.src = `data:image/png;base64,${src}`; });
+      const results: string[] = [];
+      for (let i = 0; i < count; i++) {
+        const sy = (i * max) / (totalH / img.height);
+        const sh = Math.min(max, totalH - i * max) / (totalH / img.height);
+        const dh = Math.min(max, totalH - i * max);
+        const c = document.createElement("canvas");
+        c.width = nw; c.height = dh;
+        c.getContext("2d")!.drawImage(img, 0, sy, img.width, sh, 0, 0, nw, dh);
+        results.push(c.toDataURL("image/png").split(",")[1]!);
+      }
+      return results;
+    },
+    { src: b64, nw: scaledW, totalH: scaledH, max: maxDim, count: chunkCount },
+  );
+
+  const dir = join(tmpdir(), `next-browser-screenshots-${Date.now()}`);
+  mkdirSync(dir, { recursive: true });
+  const files: string[] = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const p = join(dir, `${String(i + 1).padStart(3, "0")}.png`);
+    writeFileSync(p, Buffer.from(chunks[i], "base64"));
+    files.push(p);
+  }
+  // Clean up the original full file.
+  unlinkSync(filePath);
+
+  return { dir, files };
 }
 
 /** Remove Next.js devtools overlay from the page before screenshots. */
