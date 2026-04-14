@@ -1,5 +1,15 @@
 # @vercel/next-browser
 
+## 0.6.0
+
+### Minor Changes
+
+- [#32](https://github.com/vercel-labs/next-browser/pull/32) [`4f0b315`](https://github.com/vercel-labs/next-browser/commit/4f0b3155dd0e8e0125175babd98d1bb1577f2d28) Thanks [@gaojude](https://github.com/gaojude)! - Add `instrumentation set/clear` commands for injecting scripts before page scripts
+
+### Patch Changes
+
+- [#30](https://github.com/vercel-labs/next-browser/pull/30) [`ef8e5cc`](https://github.com/vercel-labs/next-browser/commit/ef8e5cc9272b467145856961b5abe1c34e998202) Thanks [@gaojude](https://github.com/gaojude)! - Teach agents to diagnose PPR error overlay in locked screenshots
+
 ## 0.5.1
 
 ### Patch Changes
