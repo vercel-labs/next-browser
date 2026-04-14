@@ -50,6 +50,7 @@ type Cmd = {
   tool?: string;
   args?: Record<string, unknown>;
   script?: string;
+  instrumentationScript?: string;
   selector?: string;
   value?: string;
   idx?: number;
@@ -169,6 +170,14 @@ async function run(cmd: Cmd) {
     }
     const data = await browser.viewportSize();
     return { ok: true, data };
+  }
+  if (cmd.action === "instrumentation-set") {
+    await browser.instrumentationSet(cmd.instrumentationScript!);
+    return { ok: true };
+  }
+  if (cmd.action === "instrumentation-clear") {
+    await browser.instrumentationClear();
+    return { ok: true };
   }
   if (cmd.action === "close") {
     await browser.close();

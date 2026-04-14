@@ -423,6 +423,22 @@ if (cmd === "viewport") {
   exit(res, `${data.width}x${data.height}`);
 }
 
+if (cmd === "instrumentation" && arg === "set") {
+  const filePath = args[2];
+  if (!filePath) {
+    console.error("usage: next-browser instrumentation set <path>");
+    process.exit(1);
+  }
+  const script = readFileSync(filePath, "utf-8");
+  const res = await send("instrumentation-set", { instrumentationScript: script });
+  exit(res, "instrumentation set");
+}
+
+if (cmd === "instrumentation" && arg === "clear") {
+  const res = await send("instrumentation-clear");
+  exit(res, "instrumentation cleared");
+}
+
 if (cmd === "close") {
   const res = await send("close");
   exit(res, "closed");
@@ -528,6 +544,9 @@ function printUsage() {
       "  page               show current page segments and router info\n" +
       "  project            show project path and dev server url\n" +
       "  routes             list app routes\n" +
-      "  action <id>        inspect a server action by id",
+      "  action <id>        inspect a server action by id\n" +
+      "\n" +
+      "  instrumentation set <path>  inject script before page scripts\n" +
+      "  instrumentation clear       remove instrumentation script",
   );
 }
