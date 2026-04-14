@@ -377,7 +377,12 @@ blockers) not already in the table.
 
 **`errors` doesn't report while locked.** If the shell looks wrong (empty,
 bailed to CSR), unlock and `goto` the page normally, then run `errors`.
-Don't debug blind under the lock.
+Don't debug blind under the lock. A common symptom: the PPR shell
+screenshot shows the Next.js error overlay (a white box with "Runtime
+Error" and a call stack). This means the page errored during prerender,
+but you can't read the error details from the screenshot alone. Unlock,
+navigate to the page normally (`goto`), then run `errors` to get the
+full error message and stack trace.
 
 **Full bailout (scrollHeight = 0).** When PPR bails out completely, `unlock`
 returns just "unlocked" with no shell analysis — there are no boundaries to
