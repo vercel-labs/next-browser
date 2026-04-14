@@ -1,5 +1,11 @@
 # @vercel/next-browser
 
+## 0.5.1
+
+### Patch Changes
+
+- [#28](https://github.com/vercel-labs/next-browser/pull/28) [`64f73bd`](https://github.com/vercel-labs/next-browser/commit/64f73bdcbf8de3e3e855d7e4be8f402ffcbea340) Thanks [@gaojude](https://github.com/gaojude)! - Cap screenshot dimensions to 1280px to stay under multi-image LLM request limits
+
 ## 0.5.0
 
 ### Minor Changes
