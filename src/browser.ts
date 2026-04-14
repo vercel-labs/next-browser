@@ -635,6 +635,10 @@ function escapeHtml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/** Max screenshot dimension in pixels — keeps images under the 2000px limit
+ *  that multi-image LLM requests impose. */
+const SCREENSHOT_MAX_DIM = 1280;
+
 /** Screenshot saved to a temp file. Opens the Screenshot Log window in headed mode.
  *  Returns the file path. */
 export async function screenshot(opts?: { fullPage?: boolean; caption?: string }) {
@@ -643,7 +647,12 @@ export async function screenshot(opts?: { fullPage?: boolean; caption?: string }
   const { join } = await import("node:path");
   const { tmpdir } = await import("node:os");
   const path = join(tmpdir(), `next-browser-${Date.now()}.png`);
-  await page.screenshot({ path, fullPage: opts?.fullPage });
+  // scale: 'css' prevents Retina 2x doubling (1440x900 stays 1440x900).
+  await page.screenshot({ path, fullPage: opts?.fullPage, scale: "css" });
+
+  // Full-page screenshots can still exceed the max dimension in height.
+  // Read the PNG IHDR chunk to check and resize via canvas if needed.
+  await downsizeIfNeeded(path, SCREENSHOT_MAX_DIM);
 
   const imgData = readFileSync(path).toString("base64");
   const timestamp = new Date().toLocaleTimeString();
@@ -651,6 +660,40 @@ export async function screenshot(opts?: { fullPage?: boolean; caption?: string }
   await refreshScreenshotLog();
 
   return path;
+}
+
+/** Downsize a PNG on disk if either dimension exceeds `maxDim`. Uses the
+ *  browser page's canvas to resize — no extra dependencies needed. */
+async function downsizeIfNeeded(filePath: string, maxDim: number) {
+  const buf = readFileSync(filePath);
+  // PNG IHDR: width at byte 16, height at byte 20 (big-endian uint32).
+  if (buf.length < 24) return;
+  const w = buf.readUInt32BE(16);
+  const h = buf.readUInt32BE(20);
+  if (w <= maxDim && h <= maxDim) return;
+  if (!page) return;
+
+  const b64 = buf.toString("base64");
+  const resized: string = await page.evaluate(
+    async ({ src, max }: { src: string; max: number }) => {
+      const img = new Image();
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("img load failed"));
+        img.src = `data:image/png;base64,${src}`;
+      });
+      const scale = Math.min(max / img.width, max / img.height, 1);
+      const nw = Math.round(img.width * scale);
+      const nh = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = nw;
+      canvas.height = nh;
+      canvas.getContext("2d")!.drawImage(img, 0, 0, nw, nh);
+      return canvas.toDataURL("image/png").split(",")[1]!;
+    },
+    { src: b64, max: maxDim },
+  );
+  writeFileSync(filePath, Buffer.from(resized, "base64"));
 }
 
 /** Remove Next.js devtools overlay from the page before screenshots. */
