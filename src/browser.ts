@@ -38,6 +38,7 @@ let page: Page | null = null;
 let profileDirPath: string | null = null;
 let initialOrigin: string | null = null;
 let ssrLocked = false;
+let instrumentationVersion = 0;
 
 let screenshotBrowser: Browser | BrowserContext | null = null;
 let screenshotPage: Page | null = null;
@@ -106,6 +107,7 @@ export async function close() {
   release = null;
   settled = null;
   ssrLocked = false;
+  instrumentationVersion = 0;
   // Clean up temp profile directory.
   if (profileDirPath) {
     const { rmSync } = await import("node:fs");
@@ -113,6 +115,33 @@ export async function close() {
     profileDirPath = null;
     initialOrigin = null;
   }
+}
+
+// ── Instrumentation ─────────────────────────────────────────────────────────
+//
+// addInitScript can't be removed, so we version-gate: each `set` bumps the
+// version and registers a new script that only runs when its version matches.
+// `clear` bumps the version with no matching script, disabling the old one.
+
+export async function instrumentationSet(script: string) {
+  if (!page) throw new Error("browser not open");
+  const ctx = page.context();
+  const v = ++instrumentationVersion;
+
+  // The version gate runs first, then the guarded script.
+  await ctx.addInitScript(`window.__NB_IV__=${v}`);
+  await ctx.addInitScript(`if(window.__NB_IV__===${v}){${script}}`);
+
+  // Apply immediately on the current page.
+  await page.evaluate(script);
+}
+
+export async function instrumentationClear() {
+  if (!page) throw new Error("browser not open");
+  const ctx = page.context();
+  // Bump version — no matching script, so nothing runs.
+  const v = ++instrumentationVersion;
+  await ctx.addInitScript(`window.__NB_IV__=${v}`);
 }
 
 // ── PPR lock/unlock ──────────────────────────────────────────────────────────

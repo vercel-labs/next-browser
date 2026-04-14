@@ -783,6 +783,40 @@ Inspect a server action by its ID (from `next-action` header in network list).
 
 ---
 
+### `instrumentation set <path>`
+
+Inject a JavaScript file that runs before page scripts on every navigation.
+The script is registered via Playwright's `addInitScript` and also evaluated
+immediately on the current page.
+
+Use this to intercept or patch globals before the app boots — for example,
+shimming `fetch`, collecting timing data, or stubbing APIs.
+
+```
+$ cat /tmp/patch-fetch.js
+const _fetch = window.fetch;
+window.fetch = (...args) => { console.log('fetch', args[0]); return _fetch(...args); };
+
+$ next-browser instrumentation set /tmp/patch-fetch.js
+instrumentation set
+```
+
+Each `set` replaces the previous instrumentation. Only one script is active
+at a time.
+
+### `instrumentation clear`
+
+Remove the active instrumentation script. Future navigations run without it.
+Does not undo effects already applied to the current page — reload to get a
+clean state.
+
+```
+$ next-browser instrumentation clear
+instrumentation cleared
+```
+
+---
+
 ## Scenarios
 
 ### Debugging rendering performance
