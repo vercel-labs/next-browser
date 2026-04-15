@@ -6,7 +6,8 @@ export type CookiePair = { name: string; value: string };
  *
  *   1. JSON array — Playwright-style `[{"name": "x", "value": "y"}, ...]`.
  *   2. cURL command — as produced by DevTools → Network → Copy as cURL.
- *      The Cookie header is extracted from the `-H 'cookie: …'` argument.
+ *      Cookies are extracted from `-H 'cookie: …'` or `-b '…'`/`--cookie '…'`
+ *      (macOS Chrome uses `-b` instead of `-H`).
  *   3. Bare cookie header — `name=v; name=v; ...` (e.g. the value of the
  *      Cookie row in DevTools → Network → Request Headers).
  *
@@ -51,8 +52,11 @@ function extractCookieHeaderFromCurl(curl: string): string | null {
   const joined = curl.replace(/\\\r?\n\s*/g, " ").replace(/\^\r?\n\s*/g, " ");
   // -H 'cookie: …' (bash) or -H "cookie: …" (cmd). Chrome/Firefox use one
   // or the other depending on which Copy-as-cURL variant the user picked.
-  const m = joined.match(/-H\s+(['"])\s*cookie\s*:\s*([\s\S]*?)\1/i);
-  return m ? m[2] : null;
+  const h = joined.match(/-H\s+(['"])\s*cookie\s*:\s*([\s\S]*?)\1/i);
+  if (h) return h[2];
+  // macOS Chrome uses -b (or --cookie) instead of -H for cookies.
+  const b = joined.match(/(?:-b|--cookie)\s+(['"])([\s\S]*?)\1/);
+  return b ? b[2] : null;
 }
 
 function parseCookieHeader(header: string): CookiePair[] {

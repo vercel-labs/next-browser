@@ -171,7 +171,14 @@ if (cmd === "screenshot") {
   const fullPage = args.includes("--full-page");
   const caption = args.slice(1).filter((a) => a !== "--full-page").join(" ") || undefined;
   const res = await send("screenshot", { fullPage, caption });
-  exit(res, res.ok ? String(res.data) : "");
+  if (res.ok) {
+    const { path, errors } = res.data as { path: string; errors: unknown };
+    const parts = [path];
+    if (errors) parts.push("\nerrors:\n" + json(errors));
+    console.log(parts.join(""));
+    process.exit(0);
+  }
+  exit(res, "");
 }
 
 if (cmd === "snapshot") {

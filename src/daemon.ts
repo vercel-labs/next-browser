@@ -104,8 +104,11 @@ async function run(cmd: Cmd) {
     return { ok: true, data };
   }
   if (cmd.action === "screenshot") {
-    const data = await browser.screenshot({ fullPage: cmd.fullPage, caption: cmd.caption });
-    return { ok: true, data };
+    const [path, errors] = await Promise.all([
+      browser.screenshot({ fullPage: cmd.fullPage, caption: cmd.caption }),
+      browser.mcp("get_errors").catch(() => null),
+    ]);
+    return { ok: true, data: { path, errors } };
   }
   if (cmd.action === "links") {
     const data = await browser.links();
