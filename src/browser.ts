@@ -535,6 +535,8 @@ export async function links() {
 export async function push(path: string) {
   if (!page) throw new Error("browser not open");
   const before = page.url();
+  const resolved = new URL(path, before).href;
+  if (resolved === before) throw new Error("already on this URL");
   await page.evaluate((p) => (window as any).next.router.push(p), path);
   await page.waitForURL((u) => u.href !== before, { timeout: 10_000 }).catch(() => {});
   return page.url();
