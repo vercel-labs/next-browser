@@ -320,13 +320,14 @@ server is back. Don't treat this error as a failure.
 
 Freeze dynamic content so you can inspect the static shell. After
 locking:
-- `goto` — shows the **SSR shell**: the server-rendered HTML with holes
-  where dynamic content would stream in.
-- `push` — shows the **instant shell**: what the router would reveal
-  immediately on client navigation before dynamic data arrives. In dev
-  mode there is no prefetching — the lock uses a cookie that tells the
-  dev server to simulate instant navigation, so lock + push works on
-  any route.
+- `goto` — shows the **PPR shell as HTML**: the server-rendered static
+  shell with `<template>` holes where dynamic content would stream in.
+  This is what a direct page load delivers.
+- `push` — shows the **PPR shell as RSC payload**: the same static shell
+  concept, but delivered as an RSC stream during client navigation — no
+  HTML, no hydration. In dev mode there is no prefetching — the lock
+  uses a cookie that tells the dev server to simulate instant navigation,
+  so lock + push works on any route.
 
 ```
 $ next-browser ppr lock
@@ -871,12 +872,12 @@ component is the root cause, find evidence — inspect it with `tree`,
 read its source, check what's changing via the change reason column.
 Don't propose changes from a single observation.
 
-### Growing the SSR shell
+### Growing the HTML shell (direct page load)
 
-The SSR shell is the HTML the server sends on a direct page load — what
-the user sees before any JavaScript runs. This is the PPR prerender: the
-static parts of the component tree baked into HTML, with holes (Suspense
-fallbacks) where dynamic data will stream in.
+The HTML shell is the PPR prerender delivered on a direct page load —
+what the user sees before any JavaScript runs. It's the static parts of
+the component tree baked into HTML, with `<template>` holes where
+dynamic data will stream in.
 
 The measure is the screenshot while locked: does it read as the page
 itself? A shell can be non-empty and still bad — one Suspense fallback
@@ -910,7 +911,7 @@ from a single observation.
 1. `ppr lock`
 2. `goto` the target URL — the lock suppresses dynamic content so you
    see exactly what the server pre-rendered as HTML.
-3. `screenshot "SSR shell"` — evaluate visually.
+3. `screenshot "HTML shell"` — evaluate visually.
 4. `ppr unlock` — read the shell analysis (holes, blockers, sources).
 5. Fix the top-most blocker, let HMR pick it up, re-lock, `goto`,
    and compare.
@@ -926,12 +927,10 @@ shell while the user is still on the origin page. When the link is
 clicked, the router reveals this prefetched shell instantly, then
 streams in the dynamic parts.
 
-This is a different shell from the SSR shell above. The SSR shell is
-server-rendered HTML on a direct page load. The instant shell is an RSC
-payload delivered via client navigation — there is no HTML, no
-hydration. Client components in the shell are rendered with JavaScript
-on the client side, because everything beyond the initial SSR flow has
-nothing to do with hydration.
+This is the same PPR shell concept as the HTML shell above, but
+delivered as an RSC payload stream during client navigation — there is
+no HTML, no hydration. Client components in the shell are rendered with
+JavaScript on the client side.
 
 **In dev mode there is no prefetching.** The `ppr lock` + `push`
 workflow simulates instant navigation using a cookie mechanism that tells
@@ -948,7 +947,7 @@ instant shell without needing a production build.
 5. Fix the top-most blocker, let HMR pick it up, re-lock, `push`,
    and compare.
 
-The same principles from "Growing the SSR shell" apply — work top-down,
+The same principles from "Growing the HTML shell" apply — work top-down,
 move dynamic access into children, and escalate boundary placement and
 caching decisions to the user.
 
