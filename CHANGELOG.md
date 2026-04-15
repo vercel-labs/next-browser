@@ -1,5 +1,11 @@
 # @vercel/next-browser
 
+## 0.7.0
+
+### Minor Changes
+
+- [#33](https://github.com/vercel-labs/next-browser/pull/33) [`9948015`](https://github.com/vercel-labs/next-browser/commit/9948015255e4c34c57190a6d90ce3f78df187f93) Thanks [@gaojude](https://github.com/gaojude)! - Surface errors alongside screenshots, parse macOS Chrome cURL `-b` cookie format, guard `push` against same-URL navigation, add runtime prefetch scenario to SKILL.md
+
 ## 0.6.0
 
 ### Minor Changes
