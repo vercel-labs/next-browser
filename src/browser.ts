@@ -218,11 +218,59 @@ export async function unlock() {
   await page.waitForLoadState("load").catch(() => {});
   await waitForDevToolsReconnect(page);
 
+  // Capture an intermediate snapshot while boundaries are still suspended
+  // but now visible (dynamic content is streaming in). This captures the
+  // suspendedBy data that's only available while boundaries are actively
+  // suspended — once they resolve, suspendedBy is cleared.
+  // Poll briefly to catch boundaries mid-suspension.
+  let midTransition: suspenseTree.Boundary[] = [];
+  for (let attempt = 0; attempt < 6; attempt++) {
+    await new Promise((r) => setTimeout(r, 200));
+    const snap = await suspenseTree.snapshot(page).catch(() => [] as suspenseTree.Boundary[]);
+    const hasSuspendedWithData = snap.some(
+      (b) => b.isSuspended && (b.suspendedBy.length > 0 || b.unknownSuspenders),
+    );
+    if (hasSuspendedWithData || snap.some((b) => b.suspendedBy.length > 0)) {
+      midTransition = snap;
+      break;
+    }
+    // Even if no suspendedBy yet, keep the latest snapshot with any suspended boundaries
+    if (snap.some((b) => b.isSuspended)) {
+      midTransition = snap;
+    }
+  }
+
   // Wait for all boundaries to resolve after unlock.
   await waitForSuspenseToSettle(page);
 
-  // Capture the fully-resolved state with rich suspendedBy data.
+  // Capture the fully-resolved state.
   const unlocked = await suspenseTree.snapshot(page).catch(() => [] as suspenseTree.Boundary[]);
+
+  // Merge suspendedBy from mid-transition into unlocked boundaries.
+  // This preserves blocker info that's lost once boundaries resolve.
+  if (midTransition.length > 0) {
+    const midByKey = new Map<string, suspenseTree.Boundary>();
+    for (const b of midTransition) midByKey.set(suspenseTree.boundaryKey(b), b);
+    for (const b of unlocked) {
+      if (b.suspendedBy.length === 0) {
+        const mid = midByKey.get(suspenseTree.boundaryKey(b));
+        if (mid && mid.suspendedBy.length > 0) {
+          b.suspendedBy = mid.suspendedBy;
+          b.unknownSuspenders = mid.unknownSuspenders ?? b.unknownSuspenders;
+        }
+      }
+    }
+    // Also merge into locked boundaries
+    for (const b of locked) {
+      if (b.suspendedBy.length === 0) {
+        const mid = midByKey.get(suspenseTree.boundaryKey(b));
+        if (mid && mid.suspendedBy.length > 0) {
+          b.suspendedBy = mid.suspendedBy;
+          b.unknownSuspenders = mid.unknownSuspenders ?? b.unknownSuspenders;
+        }
+      }
+    }
+  }
 
   if (locked.length === 0 && unlocked.length === 0) {
     return { text: "No suspense boundaries detected.", boundaries: unlocked, locked, report: null };
