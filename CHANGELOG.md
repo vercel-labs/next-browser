@@ -1,5 +1,11 @@
 # @vercel/next-browser
 
+## 0.7.1
+
+### Patch Changes
+
+- [#35](https://github.com/vercel-labs/next-browser/pull/35) [`1d3bf98`](https://github.com/vercel-labs/next-browser/commit/1d3bf986bcd6d3ce715591dffa2d792f9948c6a5) Thanks [@gaojude](https://github.com/gaojude)! - Capture `suspendedBy` data mid-transition before boundaries resolve
+
 ## 0.7.0
 
 ### Minor Changes
