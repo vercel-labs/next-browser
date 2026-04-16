@@ -139,10 +139,13 @@ export async function formatAnalysis(
   return formatReport(report);
 }
 
+export type ShellContext = "push" | "goto";
+
 export async function analyzeBoundaries(
   unlocked: Boundary[],
   locked: Boundary[],
   origin: string,
+  context: ShellContext = "push",
 ): Promise<AnalysisReport> {
   await resolveSources(unlocked, origin);
   await resolveSources(locked, origin);
@@ -178,7 +181,7 @@ export async function analyzeBoundaries(
   }
 
   const holeInsights = holes
-    .map(({ shell, full }) => buildBoundaryInsight(shell, full ?? shell))
+    .map(({ shell, full }) => buildBoundaryInsight(shell, full ?? shell, context))
     .sort(compareBoundaryInsights);
   const staticSummaries = statics.map((b) => ({
     id: b.id,
@@ -326,16 +329,35 @@ export function formatReport(report: AnalysisReport): string {
 function buildBoundaryInsight(
   shell: Boundary,
   resolved: Boundary,
+  context: ShellContext = "push",
 ): BoundaryInsight {
   const boundaryKind = inferBoundaryKind(resolved);
-  const blockers = resolved.suspendedBy
-    .map((blocker) => buildActionableBlocker(blocker))
+  // Prefer suspendedBy from the locked (shell) snapshot — that's when
+  // boundaries are actively suspended and have blocker info. By the time
+  // we take the unlocked snapshot, boundaries have resolved and
+  // suspendedBy is empty.
+  const suspenderSource =
+    shell.suspendedBy.length > 0 ? shell.suspendedBy : resolved.suspendedBy;
+  const blockers = suspenderSource
+    .map((blocker) => {
+      const ab = buildActionableBlocker(blocker);
+      // In push (client navigation) context, client hooks like usePathname/
+      // useSearchParams resolve instantly on the client — they only suspend
+      // during SSR prerender. Deprioritize them so server IO blockers
+      // (cookies, headers, connection) surface as the primary blocker.
+      if (context === "push" && ab.kind === "client-hook") {
+        ab.actionability = Math.max(ab.actionability - 60, 5);
+      }
+      return ab;
+    })
     .sort(compareActionableBlockers);
   const primaryBlocker = blockers[0] ?? null;
+  const unknownSuspenders =
+    shell.unknownSuspenders ?? resolved.unknownSuspenders;
   const recommendation = recommendBoundaryFix(
     boundaryKind,
     primaryBlocker,
-    resolved.unknownSuspenders,
+    unknownSuspenders,
   );
 
   return {
@@ -352,7 +374,7 @@ function buildBoundaryInsight(
     },
     primaryBlocker,
     blockers,
-    unknownSuspenders: resolved.unknownSuspenders,
+    unknownSuspenders,
     actionability: Math.max(primaryBlocker?.actionability ?? 0, boundaryKind === "route-segment" ? 55 : 0),
     recommendation: recommendation.text,
     recommendationKind: recommendation.kind,
@@ -681,7 +703,7 @@ function normalizeBoundarySegmentName(name: string | null): string | null {
   return name.endsWith("/") ? name.slice(0, -1) : name;
 }
 
-function boundaryKey(b: Boundary): string {
+export function boundaryKey(b: Boundary): string {
   if (b.jsxSource) return `${b.jsxSource[0]}:${b.jsxSource[1]}:${b.jsxSource[2]}`;
   return b.name ?? `id-${b.id}`;
 }
