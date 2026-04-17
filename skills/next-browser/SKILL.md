@@ -105,10 +105,14 @@ Two things that implies:
 
 ## Commands
 
-### `open <url> [--cookies <file>]`
+### `open <url> [--cookies <file>] [--insecure]`
 
 Launch browser, navigate to URL. With `--cookies`, sets auth cookies
-before navigating (domain derived from URL hostname).
+before navigating (domain derived from URL hostname). With `--insecure`,
+disables TLS certificate validation for the whole browser session — use
+only for local dev servers with self-signed or mismatched certs (e.g.
+Next.js `--experimental-https` on a hostname other than `localhost`).
+Do not use against URLs you do not control.
 
 ```
 $ next-browser open http://localhost:3024/vercel --cookies cookies.curl

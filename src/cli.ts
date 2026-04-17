@@ -22,7 +22,9 @@ if (cmd === "--version" || cmd === "-v") {
 
 if (cmd === "open") {
   if (!arg) {
-    console.error("usage: next-browser open <url> [--cookies <file>]");
+    console.error(
+      "usage: next-browser open <url> [--cookies <file>] [--insecure]",
+    );
     process.exit(1);
   }
   const url = /^https?:\/\//.test(arg) ? arg : `http://${arg}`;
@@ -32,9 +34,10 @@ if (cmd === "open") {
     return args.indexOf("--cookies-json"); // back-compat alias
   })();
   const cookieFile = cookieIdx >= 0 ? args[cookieIdx + 1] : undefined;
+  const insecure = args.includes("--insecure");
 
   if (cookieFile) {
-    const res = await send("open");
+    const res = await send("open", { insecure });
     if (!res.ok) exit(res, "");
     let cookies;
     try {
@@ -50,7 +53,7 @@ if (cmd === "open") {
     exit(res, `opened → ${url} (${cookies.length} cookies for ${domain})`);
   }
 
-  const res = await send("open", { url });
+  const res = await send("open", { url, insecure });
   exit(res, `opened → ${url}`);
 }
 
@@ -514,7 +517,7 @@ function printUsage() {
   console.error(
     "usage: next-browser <command> [args]\n" +
       "\n" +
-      "  open <url> [--cookies <file>]  launch browser and navigate\n" +
+      "  open <url> [--cookies <file>] [--insecure]  launch browser and navigate\n" +
       "  close              close browser and daemon\n" +
       "\n" +
       "  goto <url>         full-page navigation (new document load)\n" +
