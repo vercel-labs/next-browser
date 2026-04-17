@@ -60,11 +60,12 @@ type Cmd = {
   height?: number | null;
   fullPage?: boolean;
   caption?: string;
+  insecure?: boolean;
 };
 
 async function run(cmd: Cmd) {
   if (cmd.action === "open") {
-    await browser.open(cmd.url);
+    await browser.open(cmd.url, { insecure: cmd.insecure });
     return { ok: true };
   }
   if (cmd.action === "cookies") {
