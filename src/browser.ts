@@ -69,11 +69,14 @@ async function syncSsrRoutes() {
  * The first call spawns Chromium with the DevTools extension; subsequent calls
  * reuse the existing context.
  */
-export async function open(url: string | undefined) {
+export async function open(
+  url: string | undefined,
+  opts: { insecure?: boolean } = {},
+) {
   if (context) {
     await close();
   }
-  context = await launch();
+  context = await launch({ insecure: opts.insecure });
   page = context.pages()[0] ?? (await context.newPage());
   net.attach(page);
   if (url) {
@@ -1434,7 +1437,7 @@ export async function viewportSize() {
  *
  * Set NEXT_BROWSER_HEADLESS=1 for cloud/CI environments (no display).
  */
-async function launch() {
+async function launch(opts: { insecure?: boolean } = {}) {
   const headless = !!process.env.NEXT_BROWSER_HEADLESS;
   const dir = join(tmpdir(), `next-browser-profile-${process.pid}`);
   mkdirSync(dir, { recursive: true });
@@ -1443,10 +1446,12 @@ async function launch() {
   const ctx = await chromium.launchPersistentContext(dir, {
     headless,
     viewport: null,
+    ...(opts.insecure ? { ignoreHTTPSErrors: true } : {}),
     // --no-sandbox is required when Chrome runs as root (common in containers/cloud sandboxes)
     args: [
       ...(headless ? ["--no-sandbox"] : []),
       "--window-size=1440,900",
+      ...(opts.insecure ? ["--ignore-certificate-errors"] : []),
     ],
   });
   await ctx.addInitScript(installHook);
