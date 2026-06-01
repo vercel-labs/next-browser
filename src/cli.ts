@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { send } from "./client.ts";
 import { parseCookies } from "./cookies.ts";
+import { parseLocalStorage } from "./storage.ts";
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -22,32 +23,55 @@ if (cmd === "--version" || cmd === "-v") {
 
 if (cmd === "open") {
   if (!arg) {
-    console.error("usage: next-browser open <url> [--cookies <file>]");
+    console.error("usage: next-browser open <url> [--cookies <file>] [--local-storage <file>]");
     process.exit(1);
   }
   const url = /^https?:\/\//.test(arg) ? arg : `http://${arg}`;
-  const cookieIdx = (() => {
-    const i = args.indexOf("--cookies");
-    if (i >= 0) return i;
-    return args.indexOf("--cookies-json"); // back-compat alias
-  })();
-  const cookieFile = cookieIdx >= 0 ? args[cookieIdx + 1] : undefined;
+  const flagValue = (...names: string[]) => {
+    for (const name of names) {
+      const i = args.indexOf(name);
+      if (i >= 0) return args[i + 1];
+    }
+    return undefined;
+  };
+  const cookieFile = flagValue("--cookies", "--cookies-json"); // -json kept for back-compat
+  const localStorageFile = flagValue("--local-storage", "--local-storage-json");
 
-  if (cookieFile) {
+  if (cookieFile || localStorageFile) {
     const res = await send("open");
     if (!res.ok) exit(res, "");
-    let cookies;
-    try {
-      cookies = parseCookies(readFileSync(cookieFile, "utf-8"));
-    } catch (e) {
-      console.error(`cookies: ${(e as Error).message}`);
-      process.exit(1);
-    }
     const domain = new URL(url).hostname;
-    const cRes = await send("cookies", { cookies, domain });
-    if (!cRes.ok) exit(cRes, "");
+    const origin = new URL(url).origin;
+    const summary: string[] = [];
+
+    if (cookieFile) {
+      let cookies;
+      try {
+        cookies = parseCookies(readFileSync(cookieFile, "utf-8"));
+      } catch (e) {
+        console.error(`cookies: ${(e as Error).message}`);
+        process.exit(1);
+      }
+      const cRes = await send("cookies", { cookies, domain });
+      if (!cRes.ok) exit(cRes, "");
+      summary.push(`${cookies.length} cookies`);
+    }
+
+    if (localStorageFile) {
+      let entries;
+      try {
+        entries = parseLocalStorage(readFileSync(localStorageFile, "utf-8"));
+      } catch (e) {
+        console.error(`local-storage: ${(e as Error).message}`);
+        process.exit(1);
+      }
+      const lRes = await send("local-storage", { entries, origin });
+      if (!lRes.ok) exit(lRes, "");
+      summary.push(`${entries.length} localStorage entries`);
+    }
+
     await send("goto", { url });
-    exit(res, `opened → ${url} (${cookies.length} cookies for ${domain})`);
+    exit(res, `opened → ${url} (${summary.join(", ")} for ${domain})`);
   }
 
   const res = await send("open", { url });
@@ -514,7 +538,7 @@ function printUsage() {
   console.error(
     "usage: next-browser <command> [args]\n" +
       "\n" +
-      "  open <url> [--cookies <file>]  launch browser and navigate\n" +
+      "  open <url> [--cookies <file>] [--local-storage <file>]  launch browser and navigate\n" +
       "  close              close browser and daemon\n" +
       "\n" +
       "  goto <url>         full-page navigation (new document load)\n" +

@@ -56,6 +56,8 @@ type Cmd = {
   idx?: number;
   cookies?: { name: string; value: string }[];
   domain?: string;
+  entries?: { name: string; value: string }[];
+  origin?: string;
   width?: number | null;
   height?: number | null;
   fullPage?: boolean;
@@ -69,6 +71,10 @@ async function run(cmd: Cmd) {
   }
   if (cmd.action === "cookies") {
     const data = await browser.cookies(cmd.cookies!, cmd.domain!);
+    return { ok: true, data };
+  }
+  if (cmd.action === "local-storage") {
+    const data = await browser.setLocalStorage(cmd.entries!, cmd.origin!);
     return { ok: true, data };
   }
   if (cmd.action === "lock") {

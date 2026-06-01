@@ -43,6 +43,11 @@ See https://nextjs.org/docs/app/guides/ai-agents for background.
   click any authenticated request, right-click → Copy → Copy as cURL,
   paste the whole thing into a file, and give me the path." That's it —
   no hand-editing, no JSON. The CLI parses the cURL for you.
+- If the site is a SPA whose content still won't load with cookies (the
+  shell loads but data calls 401), it likely authenticates via a
+  `localStorage` token. Ask the user to run
+  `copy(JSON.stringify(localStorage))` in the page's DevTools console,
+  save it to a file, and give you the path — then pass `--local-storage`.
 - Never ask the user to paste cookie values into chat; if they do, stop
   and ask them to save to a file instead. You must never echo, paste,
   or write cookie values yourself. See "Trust boundaries".
@@ -105,10 +110,12 @@ Two things that implies:
 
 ## Commands
 
-### `open <url> [--cookies <file>]`
+### `open <url> [--cookies <file>] [--local-storage <file>]`
 
 Launch browser, navigate to URL. With `--cookies`, sets auth cookies
-before navigating (domain derived from URL hostname).
+before navigating (domain derived from URL hostname). With
+`--local-storage`, seeds `localStorage` for the URL's origin before the
+first navigation. Both flags can be combined.
 
 ```
 $ next-browser open http://localhost:3024/vercel --cookies cookies.curl
@@ -125,10 +132,35 @@ The `--cookies` file can be any of three formats — the CLI auto-detects:
 3. **Playwright JSON** — `[{"name":"...","value":"..."}, ...]`. The
    old `--cookies-json` flag is kept as an alias for back-compat.
 
-**The user creates this file and gives you the path.** Never echo,
-paste, or write cookie values yourself — they are secrets and must not
-appear in your commands, transcript, or any file you create. See
-"Trust boundaries".
+**`--local-storage` — for SPAs that don't auth via cookies.** Many SPAs
+keep their auth token in `localStorage` (not a cookie), so the
+data-fetching layer fails even when the document loads with the right
+cookie. Seed those entries with `--local-storage <file>`:
+
+```
+$ next-browser open https://app.example.com/s/abc --local-storage tokens.json
+opened → https://app.example.com/s/abc (3 localStorage entries for app.example.com)
+```
+
+The file is JSON in either form:
+
+1. **Object** (easiest) — `{"key":"value", ...}`. This is exactly what
+   `JSON.stringify(localStorage)` produces, so the user can run
+   `copy(JSON.stringify(localStorage))` in the page's DevTools console
+   and paste the result into a file.
+2. **Array** — `[{"name":"...","value":"..."}, ...]` (also accepts
+   `key` instead of `name`). The `--local-storage-json` alias also works.
+
+The entries are re-seeded on every navigation/reload and are
+origin-guarded (never leak to other origins the SPA visits).
+`indexedDB`-based tokens are not yet supported — if a page still fails
+to load after seeding `localStorage`, check `network` for the failing
+data request and inspect what it authenticates with.
+
+**The user creates these files and gives you the path.** Never echo,
+paste, or write cookie or token values yourself — they are secrets and
+must not appear in your commands, transcript, or any file you create.
+See "Trust boundaries".
 
 ### `close`
 
@@ -1046,3 +1078,36 @@ If the shell is still empty after waiting, check:
   in the RSC payload, not a separate request.
 - Did `errors` surface any `unstable_instant` validation failures?
 - Is `unstable_prefetch = 'runtime'` exported from the correct segment?
+
+### Authenticated SPA loads the shell but not the content
+
+The page opens, the HTML shell renders (HTTP 200), but the actual
+content never appears — a viewer shows "couldn't load", a dashboard
+stays on its skeleton, an API panel is empty. The document request was
+authenticated, but the app's *data* request was not.
+
+This is the cookie-vs-token split. The cookie satisfies the document
+request, but many SPAs authenticate their data-fetching layer with a
+token in `localStorage` (or `indexedDB`), or an `Authorization` header
+derived from it — none of which `--cookies` supplies.
+
+**Workflow:**
+
+1. `network` — find the failing data request. A `401`/`403` on an
+   XHR/fetch while the document was `200` is the tell.
+2. Inspect that request (`network <idx>`). If it carries an
+   `Authorization: Bearer …` header or a custom token header rather than
+   relying on the cookie, the credential lives in client storage.
+3. Confirm with `eval 'Object.keys(localStorage)'` — a token-looking key
+   (`token`, `access_token`, `auth`, a JWT value) confirms it.
+4. Ask the user to capture it: run `copy(JSON.stringify(localStorage))`
+   in the page's DevTools console, save to a file, share the path. (Same
+   trust boundary as cookies — you handle the path, never the value.)
+5. Re-`open` with `--local-storage <file>` (combine with `--cookies` if
+   the document needs the cookie too). The token is seeded before the
+   first navigation, so the data request authenticates on first load.
+6. `network` again — the previously failing request should now be `200`.
+
+If the data request still fails after seeding `localStorage`, the token
+likely lives in `indexedDB` (not yet supported). Report that to the user
+with the specific failing request from `network` as evidence.

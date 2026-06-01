@@ -95,6 +95,39 @@ export async function cookies(cookies: { name: string; value: string }[], domain
   return cookies.length;
 }
 
+/**
+ * Seed localStorage for a specific origin before navigating. Many SPAs keep
+ * their auth token in localStorage (not cookies), so the data-fetching layer
+ * authenticates via a value that --cookies can't supply.
+ *
+ * Implemented with addInitScript so the entries are present before the page's
+ * own scripts run on the very first navigation — the same "before the first
+ * request" guarantee that cookies() provides. The script re-seeds on every
+ * navigation/reload, and is origin-guarded so tokens never leak to other
+ * origins the SPA might navigate to. Must be called after open() but before
+ * navigating to the target page.
+ */
+export async function setLocalStorage(
+  entries: { name: string; value: string }[],
+  origin: string,
+) {
+  if (!context) throw new Error("browser not open");
+  await context.addInitScript(
+    (data: { origin: string; entries: [string, string][] }) => {
+      try {
+        if (location.origin !== data.origin) return;
+        for (const [k, v] of data.entries) {
+          try {
+            window.localStorage.setItem(k, v);
+          } catch {}
+        }
+      } catch {}
+    },
+    { origin, entries: entries.map((e) => [e.name, e.value] as [string, string]) },
+  );
+  return entries.length;
+}
+
 /** Close the browser and reset all state. */
 export async function close() {
   await screenshotBrowser?.close().catch(() => {});

@@ -36,10 +36,10 @@ Requires Node >= 20.
 
 ### Browser lifecycle
 
-| Command                              | Description                                        |
-| ------------------------------------ | -------------------------------------------------- |
-| `open <url> [--cookies <file>]`      | Launch browser and navigate (with optional cookies) |
-| `close`                              | Close browser and kill daemon                      |
+| Command                                                  | Description                                               |
+| -------------------------------------------------------- | --------------------------------------------------------- |
+| `open <url> [--cookies <file>] [--local-storage <file>]` | Launch browser and navigate (auth: cookies, localStorage) |
+| `close`                                                  | Close browser and kill daemon                             |
 
 ### Navigation
 
