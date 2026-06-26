@@ -11,20 +11,6 @@ agent loop can fire them off without managing browser lifecycle.
 
 ## Getting started
 
-**As a skill** (recommended) — from your Next.js repo:
-
-```bash
-npx skills add vercel-labs/next-browser
-```
-
-Works with Claude Code, Cursor, Cline, and [others](https://skills.sh).
-Start your agent in the project and type `/next-browser` to invoke the
-skill. It installs the CLI and Chromium if needed, asks for your dev server
-URL, and from there it's pair programming — tell it what you're debugging
-and it drives the browser for you.
-
-**Manual install:**
-
 ```bash
 pnpm add -g @vercel/next-browser   # or npm, yarn
 playwright install chromium
