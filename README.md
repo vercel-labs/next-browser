@@ -1,5 +1,7 @@
 # @vercel/next-browser
 
+> **Deprecated:** `next-browser` is no longer maintained. Use [agent-browser](https://github.com/vercel-labs/agent-browser) instead.
+
 React DevTools and the Next.js dev overlay as shell commands — component
 trees, props, hooks, PPR shells, errors, network, accessibility snapshots —
 structured text that agents can parse and act on.
